@@ -105,7 +105,7 @@ def zurueck() -> None:
 
 
 # --- Rundenkonfiguration ----------------------------------------------------
-st.title("🎲 Maxen")
+st.title("🎲🎲🎲 Maxen")
 
 with st.expander("Runde einstellen", expanded=not ss.verlauf and ss.ende is None):
     st.segmented_control(
