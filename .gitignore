@@ -222,3 +222,6 @@ __marimo__/
 .claude/settings.local.json
 # Streamlit
 .streamlit/secrets.toml
+
+# Notizen für Claude Code (nur lokal)
+CLAUDE.md
