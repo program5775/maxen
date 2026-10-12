@@ -216,5 +216,9 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# Local links to agentic skills
+.agents/
+.claude/skills/
+.claude/settings.local.json
 # Streamlit
 .streamlit/secrets.toml
