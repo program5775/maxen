@@ -168,13 +168,28 @@ class Bewertung:
 
 
 class Engine:
-    """Optimale Strategie für eine Runde mit `wuerfe` erlaubten Würfen."""
+    """Optimale Strategie für einen Durchgang mit `wuerfe` erlaubten Würfen.
 
-    def __init__(self, wuerfe: int = 3, gegner: int = 1, iterationen: int = 30):
+    startspieler=True: Der Startspieler darf bis zu dreimal würfeln und legt
+    durch sein Stehenbleiben die Wurfgrenze der anderen fest. Bleibt er nach
+    Wurf k stehen, wird sein Ergebnis gegen die Gegnerverteilung von
+    `Engine(k)` bewertet (nach dem Bonuswurf gilt Grenze 3).
+    """
+
+    def __init__(self, wuerfe: int = 3, gegner: int = 1, iterationen: int = 30,
+                 startspieler: bool = False):
         if wuerfe not in (1, 2, 3):
             raise ValueError("wuerfe muss 1, 2 oder 3 sein")
+        if startspieler and wuerfe != 3:
+            raise ValueError("Der Startspieler darf immer bis zu dreimal würfeln (wuerfe=3)")
         self.wuerfe = wuerfe
         self.gegner = gegner
+        self.startspieler = startspieler
+        if startspieler:
+            self._nutzen_je_grenze = {k: Engine(k, gegner, iterationen).nutzen for k in (1, 2, 3)}
+            self.nutzen = self._nutzen_je_grenze[3]
+            self._cache = {}
+            return
         self.gegner_verteilung = einzelwurf_verteilung()
         self._setze_nutzen()
         for _ in range(iterationen):
@@ -194,6 +209,12 @@ class Engine:
             q = besser + 0.5 * self.gegner_verteilung.get(s, 0.0)
             self.nutzen[s] = 1 - q ** self.gegner
         self._cache: dict = {}
+
+    def endnutzen(self, wurf_nr: int) -> dict[Schluessel, float]:
+        """Nutzen je Endergebnis, wenn nach Wurf Nr. `wurf_nr` stehen geblieben wird."""
+        if self.startspieler:
+            return self._nutzen_je_grenze[min(wurf_nr, 3)]
+        return self.nutzen
 
     # --- Dynamische Programmierung ------------------------------------------
     def zustand(self, fest: tuple[int, ...], wurf_nr: int) -> tuple[float, Verteilung]:
@@ -215,11 +236,12 @@ class Engine:
         """Alle Optionen nach Wurf Nr. `wurf_nr`, beste zuerst."""
         wuerfeln = darf_wuerfeln(wurf_nr, self.wuerfe)
         drehen = wurf_nr <= self.wuerfe and darf_drehen(wurf_nr, self.wuerfe)
+        endnutzen = self.endnutzen(wurf_nr)
         bew = []
         for o in optionen(wurf, wuerfeln, drehen):
             if len(o.neu_fest) == 3:
                 s = bewerte(o.neu_fest)
-                bew.append(Bewertung(o, self.nutzen[s], {s: 1.0}))
+                bew.append(Bewertung(o, endnutzen[s], {s: 1.0}))
             else:
                 bew.append(Bewertung(o, *self.zustand(o.neu_fest, wurf_nr + 1)))
         # Bei Gleichstand: die Option bevorzugen, die mehr liegen lässt

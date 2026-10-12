@@ -2,7 +2,7 @@
 
 Start: streamlit run app.py
 
-Ablauf einer Runde: Würfe eingeben -> Empfehlung + Optionstabelle -> Option
+Ablauf eines Durchgangs: Würfe eingeben -> Empfehlung + Optionstabelle -> Option
 wählen -> nächster Wurf (liegen gelassene Würfel sind vorbelegt) -> … bis
 „stehen“. Die App wird am Handy benutzt, daher große Touch-Ziele.
 """
@@ -31,8 +31,8 @@ st.markdown(
 
 
 @st.cache_resource(show_spinner="Berechne optimale Strategie …")
-def lade_engine(wuerfe: int, gegner: int) -> Engine:
-    return Engine(wuerfe=wuerfe, gegner=gegner)
+def lade_engine(wuerfe: int, gegner: int, startspieler: bool = False) -> Engine:
+    return Engine(wuerfe=wuerfe, gegner=gegner, startspieler=startspieler)
 
 
 def wuerfel_html(fest, neu=()) -> str:
@@ -55,18 +55,19 @@ AKTION_BADGE = {
 
 # --- Zustand ----------------------------------------------------------------
 ss = st.session_state
-ss.setdefault("runde", 0)         # Teil der Widget-Keys, damit eine neue Runde die Eingaben leert
+ss.setdefault("durchgang", 0)     # Teil der Widget-Keys, damit ein neuer Durchgang die Eingaben leert
 ss.setdefault("wurf_nr", 1)
 ss.setdefault("fest", ())         # Würfel, die aus dem letzten Wurf liegen
 ss.setdefault("verlauf", [])
 ss.setdefault("ende", None)       # Endwurf, sobald „stehen“ gewählt wurde
 ss.setdefault("cfg_wuerfe", 3)
 ss.setdefault("cfg_gegner", 1)
+ss.setdefault("cfg_start", False)
 ss.setdefault("letzte_wuerfe", 3)
 
 
-def neue_runde() -> None:
-    ss.runde += 1
+def neuer_durchgang() -> None:
+    ss.durchgang += 1
     ss.wurf_nr = 1
     ss.fest = ()
     ss.verlauf = []
@@ -79,11 +80,11 @@ def wuerfe_geaendert() -> None:
         ss.cfg_wuerfe = ss.letzte_wuerfe
     if ss.cfg_wuerfe != ss.letzte_wuerfe:
         ss.letzte_wuerfe = ss.cfg_wuerfe
-        neue_runde()
+        neuer_durchgang()
 
 
 def wuerfel_key(i: int) -> str:
-    return f"w_{ss.runde}_{ss.wurf_nr}_{i}"
+    return f"w_{ss.durchgang}_{ss.wurf_nr}_{i}"
 
 
 def waehle(option, wurf, neu) -> None:
@@ -104,34 +105,44 @@ def zurueck() -> None:
         ss[wuerfel_key(i)] = w
 
 
-# --- Rundenkonfiguration ----------------------------------------------------
+# --- Konfiguration des Durchgangs --------------------------------------------
 st.title("🎲🎲🎲 Maxen")
 
-with st.expander("Runde einstellen", expanded=not ss.verlauf and ss.ende is None):
+with st.expander("Durchgang einstellen", expanded=not ss.verlauf and ss.ende is None):
+    st.toggle("Ich bin Startspieler", key="cfg_start", on_change=neuer_durchgang)
+    if ss.cfg_start:
+        st.caption("Als Startspieler darfst du bis zu dreimal würfeln. "
+                   "Wie oft du würfelst, dürfen die anderen höchstens würfeln.")
     st.segmented_control(
         "Erlaubte Würfe", options=[1, 2, 3], key="cfg_wuerfe", on_change=wuerfe_geaendert,
-        format_func=lambda n: "1 (Schuss)" if n == 1 else str(n),
+        format_func=lambda n: "1 (Schuss)" if n == 1 else str(n), disabled=ss.cfg_start,
     )
     st.number_input("Gegner (Mitspieler außer dir)", min_value=1, max_value=10, step=1,
-                    key="cfg_gegner", on_change=neue_runde)
+                    key="cfg_gegner", on_change=neuer_durchgang)
 
-wuerfe, gegner = ss.cfg_wuerfe, ss.cfg_gegner
-engine = lade_engine(wuerfe, gegner)
+startspieler, gegner = ss.cfg_start, ss.cfg_gegner
+wuerfe = 3 if startspieler else ss.cfg_wuerfe
+engine = lade_engine(wuerfe, gegner, startspieler)
 
-# --- Rundenende -------------------------------------------------------------
+# --- Ende des Durchgangs -----------------------------------------------------
 if ss.ende is not None:
     s = bewerte(ss.ende)
-    st.subheader("Runde beendet")
+    st.subheader("Durchgang beendet")
     st.markdown(wuerfel_html((), ss.ende), unsafe_allow_html=True)
     st.metric("Ergebnis", wurf_name(ss.ende), f"Rang {RANG[s]}", delta_color="off")
-    st.write(f"Chance, nicht zu verlieren: **{prozent(engine.nutzen[s])}**")
-    st.button("Neue Runde", type="primary", width="stretch", on_click=neue_runde)
+    letzter_wurf = ss.verlauf[-1]["wurf_nr"]
+    st.write(f"Chance, nicht zu verlieren: **{prozent(engine.endnutzen(letzter_wurf)[s])}**")
+    if startspieler:
+        st.write(f"Die anderen dürfen höchstens **{min(letzter_wurf, 3)}-mal** würfeln.")
+    st.button("Neuer Durchgang", type="primary", width="stretch", on_click=neuer_durchgang)
     st.button("↩ Zurück", width="stretch", on_click=zurueck)
     st.stop()
 
 # --- Würfeleingabe ----------------------------------------------------------
 if ss.wurf_nr == 4:
     st.subheader("Bonuswurf (Wurf 4)")
+elif startspieler:
+    st.subheader(f"Wurf {ss.wurf_nr} (Startspieler, bis zu 3)")
 elif wuerfe == 1:
     st.subheader("Schuss")
 else:
@@ -161,6 +172,8 @@ emp = engine.empfehlung(wurf, ss.wurf_nr)
 st.markdown(wuerfel_html(ss.fest, neu), unsafe_allow_html=True)
 st.markdown(f"**{wurf_name(wurf)}** (Rang {RANG[bewerte(wurf)]})")
 st.success(emp.begruendung(), icon="👉")
+if startspieler and ss.wurf_nr < 3:
+    st.caption(f"Bleibst du jetzt stehen, dürfen die anderen höchstens {ss.wurf_nr}-mal würfeln.")
 
 # --- Was tun mit jedem Würfel? ------------------------------------------------
 if emp.beste.option.aktion != "stehen":

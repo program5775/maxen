@@ -106,3 +106,26 @@ def test_wuerfel_aktionen():
             fest = [w for w, x in zip(wurf, a) if x == "liegen"] + [1] * a.count("drehen")
             assert sorted(fest) == list(o.neu_fest)
             assert a.count("neu") == o.neu_wuerfeln
+
+
+def test_startspieler_legt_grenze_fest():
+    """Bleibt der Startspieler nach Wurf k stehen, zählt die Gegnerverteilung bei Grenze k
+    (nach dem Bonuswurf gilt Grenze 3)."""
+    s = Engine(3, gegner=2, startspieler=True)
+    for nr, k in ((1, 1), (2, 2), (3, 3), (4, 3)):
+        stehen = next(b for b in s.empfehlung((4, 4, 6), nr).optionen if b.option.aktion == "stehen")
+        assert stehen.nutzen == pytest.approx(Engine(k, gegner=2).nutzen[bewerte((4, 4, 6))])
+
+
+def test_startspieler_beispiel_644():
+    """Beispiel des Nutzers: Max bleibt als Startspieler nach Wurf 2 mit 6,4,4 stehen,
+    ein normaler Spieler würde weiterwürfeln."""
+    assert Engine(3, gegner=2, startspieler=True).empfehlung((6, 4, 4), 2).beste.option.aktion == "stehen"
+    assert Engine(3, gegner=2).empfehlung((6, 4, 4), 2).beste.option.aktion != "stehen"
+
+
+def test_startspieler_im_vorteil():
+    for g in (1, 2, 3):
+        assert Engine(3, g, startspieler=True).startwert().nutzen > Engine(3, g).startwert().nutzen
+    with pytest.raises(ValueError):
+        Engine(2, startspieler=True)
