@@ -56,17 +56,20 @@ Spieler im Urlaub steigen in der zweiten Hälfte wieder ein, nach einem glatten 
 
 ### Wer beginnt?
 
-- Der allererste Durchgang der allerersten Runde ist ein **Schuss** (ein einziger Wurf) für alle.
+- Die Sitzordnung wird ausgelost.
+- Der allererste Durchgang der allerersten Runde ist ein **Schuss** (ein einziger Wurf) für alle. Beim Schuss würfeln alle gleichzeitig, es gibt keinen Startspieler.
 - Danach beginnt immer der Spieler, der im letzten Durchgang Bricken bekommen hat.
 - Die zweite Hälfte und das Finale beginnt der Verlierer der ersten Hälfte.
-- Eine neue Runde beginnt der Verlierer der letzten Runde. Einen Schuss gibt es dann nicht mehr.
+- Eine neue Runde beginnt der Verlierer der letzten Runde, ohne Schuss.
+  Ist seitdem jemand hinzugekommen oder gegangen, wird die Sitzordnung neu ausgelost, und die Runde beginnt wieder mit einem Schuss für alle.
 
 ### Ablauf eines Durchgangs
 
 1. **Der Startspieler** würfelt höchstens dreimal. Wie oft er würfelt, so oft dürfen die anderen in diesem Durchgang höchstens würfeln.
-   Bleibt er schon nach dem ersten Wurf stehen, haben also alle anderen nur einen Schuss. Sein letzter Wurf bleibt verdeckt.
+   Bleibt er schon nach dem ersten Wurf stehen, haben also alle anderen nur einen Schuss.
+   Der erste und zweite Wurf sind bei allen Spielern offen. Wer nach Wurf 1 oder 2 stehen bleibt, zeigt sein Ergebnis also sofort. Nur der dritte Wurf bleibt verdeckt.
 2. **Die anderen** sind reihum dran und würfeln höchstens so oft wie der Startspieler. Früher stehen bleiben ist erlaubt.
-3. **Aufdecken:** Wenn alle dran waren, deckt der Startspieler auf, danach reihum die anderen.
+3. **Aufdecken:** Wenn alle dran waren, decken alle mit verdecktem dritten Wurf auf, zuerst der Startspieler, danach reihum die anderen.
 4. **Bonuswurf:** Wer beim Aufdecken nach seinem dritten Wurf drehen darf (siehe unten), muss sich sofort entscheiden, also bevor die Spieler nach ihm aufdecken.
    Der vierte Wurf bleibt verdeckt. Zum Schluss werden die vierten Würfe der Reihe nach aufgedeckt, beginnend beim Startspieler bzw. beim ersten Spieler, der gedreht hat.
 
@@ -114,6 +117,9 @@ Jede Straße schlägt jeden normalen Wurf, auch 3, 2, 1 schlägt 6, 6, 5.
 
 Haben mehrere Spieler das gleiche beste oder schlechteste Ergebnis, wird **gestochen**:
 zuerst unter den Besten, wer abgibt (nur in Phase 2), danach unter den Schlechtesten, wer die Bricken bekommt.
+
+Haben in Phase 2 alle das gleiche Ergebnis, wird zuerst unter allen gestochen, wer abgibt.
+Unter den übrigen wird danach gestochen, wer die Bricken bekommt. Zu zweit gibt also der Gewinner des Stechens an den anderen ab.
 
 Beim Stechen würfelt jeder Beteiligte einmal mit allen drei Würfeln. Es zählt nur die **Augensumme**:
 6, 6, 6 (18) ist das höchste, 1, 1, 1 (3) das niedrigste Ergebnis. Bei gleicher Summe wird neu geworfen, zum Beispiel bei 6, 5, 1 gegen 4, 4, 4.
