@@ -20,7 +20,7 @@ def raeume(seed=1):
     return Raeume(rng_fabrik=lambda: random.Random(seed), uhr=uhr), uhr
 
 
-def raum_mit(namen, bots=0, seed=1, stufe="Profi"):
+def raum_mit(namen, bots=0, seed=1, stufe="Mathematiker"):
     """Raum „Tisch“ mit den Menschen `namen` (der erste ist Ersteller), gestartet."""
     rs, uhr = raeume(seed)
     r, _ = rs.betreten("Tisch", namen[0])
@@ -73,8 +73,8 @@ def test_nur_der_ersteller_stellt_ein_und_startet():
     r, _ = rs.betreten("Tisch", "Anna")
     rs.betreten("Tisch", "Ben")
     assert not r.einstellen("Ben", bots=3)
-    assert r.einstellen("anna", bots=2, stufe="Profi", tipps=True)
-    assert (r.bots, r.stufe, r.tipps) == (2, "Profi", True)
+    assert r.einstellen("anna", bots=2, stufe="Mathematiker", tipps=True)
+    assert (r.bots, r.stufe, r.tipps) == (2, "Mathematiker", True)
     assert not r.starten("Ben", r.marke("Ben"))
     veraltet = r.marke("Anna")
     r.einstellen("Anna", tipps=False)
@@ -177,6 +177,18 @@ def test_pause_endet_wenn_alle_bestaetigt_haben():
     assert r.pause is None
 
 
+def test_urlaub_muss_nicht_bestaetigen():
+    _, r, _ = raum_mit(["Anna", "Ben", "Cleo"], bots=1)
+    menschen = {r.index(n) for n in r.menschen}
+
+    def urlauber_pause():
+        return (r.pause is not None and not r.pause.runde
+                and not menschen <= set(r.sitzung.ausgewertet[-1].reihenfolge))
+    spiele_bis(r, urlauber_pause, schritte=20000)
+    spielten = set(r.sitzung.ausgewertet[-1].reihenfolge)
+    assert r.pause.warten_auf == menschen & spielten and r.pause.warten_auf
+
+
 def test_allein_ohne_zeitlimit():
     _, r, uhr = raum_mit(["Anna"], bots=2)
     spiele_bis(r, lambda: r.pause is not None)
@@ -277,7 +289,7 @@ def test_beenden_zurueck_in_den_warteraum():
 
 def test_mehrere_runden_mit_wechselnden_spielern():
     """Längerer Ablauf: Runden, Zuschauer, Verlassen, Rückkehr. Die Bricken stimmen immer."""
-    rs, r, uhr = raum_mit(["Anna", "Ben"], bots=2, stufe="Fortgeschritten", seed=3)
+    rs, r, uhr = raum_mit(["Anna", "Ben"], bots=2, stufe="Stammspieler", seed=3)
     rng = random.Random(3)
     for runde in range(4):
         s = r.sitzung

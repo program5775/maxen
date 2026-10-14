@@ -7,7 +7,7 @@ wählen -> nächster Wurf (liegen gelassene Würfel sind vorbelegt) -> … bis
 import streamlit as st
 
 from maxen.regeln import RANG, bewerte, wurf_name
-from ui import AUGEN, lade_engine, optionsknoepfe, optionstabelle, prozent, wuerfel_html, wuerfel_tabelle
+from ui import AUGEN, augen, lade_engine, optionsknoepfe, optionstabelle, prozent, wuerfel_html, wuerfel_tabelle
 
 
 # --- Zustand ----------------------------------------------------------------
@@ -63,8 +63,6 @@ def zurueck() -> None:
 
 
 # --- Konfiguration des Durchgangs --------------------------------------------
-st.title("🎲🎲🎲 Maxen")
-
 with st.expander("Durchgang einstellen", expanded=not ss.verlauf and ss.ende is None):
     st.toggle("Ich bin Startspieler", key="cfg_start", on_change=neuer_durchgang, persist_state="session")
     if ss.cfg_start:
@@ -107,13 +105,16 @@ else:
     st.subheader(f"Wurf {ss.wurf_nr} von {wuerfe}")
 
 if ss.fest:
-    st.markdown(f"Liegen: **{', '.join(map(str, ss.fest))}** – gib die neu gewürfelten Würfel ein:")
+    st.markdown(f"Liegen: {augen(ss.fest, liegt=True)} – gib die neu gewürfelten Würfel ein:",
+                unsafe_allow_html=True)
 
 neu = []
-for i in range(3 - len(ss.fest)):
-    neu.append(st.segmented_control(
-        f"Würfel {len(ss.fest) + i + 1}", options=list(AUGEN), key=wuerfel_key(i), persist_state="session",
-    ))
+with st.container(key="assistent_wuerfel"):
+    for i in range(3 - len(ss.fest)):
+        neu.append(st.segmented_control(
+            f"Würfel {len(ss.fest) + i + 1}", options=list(AUGEN), format_func=AUGEN.get, key=wuerfel_key(i),
+            persist_state="session",
+        ))
 
 if None in neu:
     if ss.wurf_nr == 1:

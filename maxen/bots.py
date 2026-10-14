@@ -7,23 +7,92 @@ from __future__ import annotations
 import math
 import random
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from .engine import Empfehlung, Option
-from .regeln import STRASSE, bewerte
+from .regeln import MAX, NORMAL, PASCH, STRASSE, Wurf, bewerte
+
+MITTE_GENERAL = 3   # Phase 1: liegen höchstens so viele Bricken in der Mitte, geht man mit Max auf den General
+MITTE_VIEL = 6      # Phase 1: liegen mehr in der Mitte, bleibt man mit Max 5 oder Max 6 stehen
+EIGENE_VIEL = 6     # Phase 2: wer mehr eigene Bricken hat, bleibt nach Wurf 1 ab Straße stehen
+
+
+@dataclass(frozen=True)
+class Lage:
+    """Was ein Bot außer der Empfehlung über seinen Zug weiß."""
+    wurf: Wurf
+    wurf_nr: int
+    startspieler: bool = False   # legt durch sein Stehenbleiben die Wurfgrenze fest
+    bricken: int = 0             # eigene Bricken in der laufenden Hälfte
+    phase: int = 1               # 1 = Verteilen, 2 = Abgeben
+    mitte: int = 15              # Bricken in der Mitte
+
+
+def plan(lage: Lage) -> str | None:
+    """Was ein Stammspieler mit einem guten Wurf vorhat: "stehen", "max" (1,1 liegen lassen, für einen
+    höheren Max oder den General) oder None (keine Faustregel, die Engine entscheidet).
+
+    Phase 1 (Verteilen):
+    * Max 2 hält man nie, man würfelt auf einen höheren Max.
+    * Ende der Hälfte (höchstens MITTE_GENERAL in der Mitte): mit jedem Max auf den General.
+    * Anfang der Hälfte (mehr als MITTE_VIEL in der Mitte): mit Max 5 oder Max 6 stehen bleiben.
+    Phase 2 (Abgeben), man will gewinnen und abgeben:
+    * Mehr als EIGENE_VIEL eigene Bricken: nach Wurf 1 ab Straße stehen bleiben, auch mit Max 2.
+    * Sonst mit Max stehen bleiben, wenn er für alle eigenen Bricken reicht, sonst auf einen höheren Max;
+      mit Straße oder Pasch nach Wurf 1 stehen bleiben.
+    """
+    kategorie, wert = bewerte(lage.wurf)
+    if lage.phase == 1:
+        if kategorie != MAX:
+            return None
+        if wert == 2 or lage.mitte <= MITTE_GENERAL:
+            return "max"
+        return "stehen" if lage.mitte > MITTE_VIEL and wert >= 5 else None
+    if lage.bricken > EIGENE_VIEL:
+        return "stehen" if lage.wurf_nr == 1 and STRASSE <= kategorie <= MAX else None
+    if kategorie == MAX:
+        return "stehen" if wert >= lage.bricken else "max"
+    return "stehen" if lage.wurf_nr == 1 and kategorie in (STRASSE, PASCH) else None
+
+
+def faustregel(option: Option, lage: Lage) -> bool:
+    """Hält `option` die Faustregeln der Stammspieler ein?
+
+    * Mit Max, Pasch oder Straße je nach Phase und Bricken stehen bleiben oder auf einen höheren Max
+      gehen (siehe `plan`).
+    * Als Startspieler nach Wurf 1 mit 6,6 oder 6,1 nicht stehen bleiben (kein Schuss).
+    * Wer weiterwürfelt, lässt alle 1en liegen und neben einer einzelnen 1 auch eine 6.
+      Drehen ist davon ausgenommen.
+    """
+    wurf, fest = lage.wurf, option.neu_fest
+    kategorie = bewerte(wurf)[0]
+    vorhaben = plan(lage)
+    if vorhaben == "stehen":
+        return option.aktion == "stehen"
+    if vorhaben == "max":
+        return fest == (1, 1)
+    if option.aktion == "stehen":
+        sechs_und = wurf.count(6) >= 2 or (6 in wurf and 1 in wurf)
+        return not (lage.startspieler and lage.wurf_nr == 1 and kategorie == NORMAL and sechs_und)
+    if option.aktion == "drehen":
+        return True
+    if fest.count(1) < wurf.count(1):
+        return False
+    return not (wurf.count(1) == 1 and 6 in wurf and 6 not in fest)
 
 
 class Bot:
     stufe = ""
 
-    def waehle(self, empfehlung: Empfehlung, rng: random.Random) -> Option:
+    def waehle(self, empfehlung: Empfehlung, rng: random.Random, lage: Lage) -> Option:
         raise NotImplementedError
 
 
-class Profi(Bot):
+class Mathematiker(Bot):
     """Spielt immer die Empfehlung der Engine."""
-    stufe = "Profi"
+    stufe = "Mathematiker"
 
-    def waehle(self, empfehlung, rng):
+    def waehle(self, empfehlung, rng, lage):
         return empfehlung.beste.option
 
 
@@ -32,44 +101,44 @@ def logit(p: float) -> float:
     return math.log(p / (1 - p))
 
 
-class Fortgeschritten(Bot):
-    """Macht kleine Fehler, aber keine groben: Optionen, deren Chance, nicht zu verlieren,
-    mehr als `grenze` unter der besten liegt, wählt er nie. Unter den übrigen wählt er zufällig,
-    gewichtet per Softmax über die Log-Odds der Chance. Log-Odds statt der Chance selbst, weil bei
-    vielen Gegnern alle Chancen nahe 100 % liegen und klare Fehler dann nur kleine Abstände haben
-    (6,6,1 nach Wurf 2 gegen 5 Gegner: Drehen 99,9 %, 6,6 liegen lassen 92,6 %).
-    Je höher die Temperatur, desto öfter weicht er von der besten Option ab."""
-    stufe = "Fortgeschritten"
+class Stammspieler(Bot):
+    """Spielt nach den Faustregeln (`faustregel`) und unter den Optionen, die sie erlauben, meist gut.
 
-    def __init__(self, temperatur: float = 0.3, grenze: float = 0.10):
+    In `regeltreue` der Fälle hält er sich an die Faustregeln; erlauben sie keine Option, gelten alle.
+    Optionen, deren Chance, nicht zu verlieren, mehr als `grenze` unter der besten verbliebenen liegt,
+    wählt er nie. Unter den übrigen wählt er zufällig, gewichtet per Softmax über die Log-Odds der Chance.
+    Log-Odds statt der Chance selbst, weil bei vielen Gegnern alle Chancen nahe 100 % liegen und klare
+    Fehler dann nur kleine Abstände haben (6,6,1 nach Wurf 2 gegen 5 Gegner: Drehen 99,9 %,
+    6,6 liegen lassen 92,6 %). Je höher die Temperatur, desto öfter weicht er von der besten Option ab."""
+    stufe = "Stammspieler"
+
+    def __init__(self, temperatur: float = 0.3, grenze: float = 0.03, regeltreue: float = 1.0):
         self.temperatur = temperatur
         self.grenze = grenze
+        self.regeltreue = regeltreue
 
-    def waehle(self, empfehlung, rng):
-        beste = empfehlung.beste.nutzen
-        kandidaten = [b for b in empfehlung.optionen if beste - b.nutzen <= self.grenze]
+    def waehle(self, empfehlung, rng, lage):
+        kandidaten = empfehlung.optionen
+        if self.regeltreue >= 1 or rng.random() < self.regeltreue:
+            kandidaten = [b for b in kandidaten if faustregel(b.option, lage)] or kandidaten
+        beste = kandidaten[0].nutzen
+        kandidaten = [b for b in kandidaten if beste - b.nutzen <= self.grenze]
         gewichte = [math.exp((logit(b.nutzen) - logit(beste)) / self.temperatur) for b in kandidaten]
         return rng.choices(kandidaten, weights=gewichte)[0].option
 
 
-class Anfaenger(Bot):
-    """Faustregel ohne Engine: ab Straße stehen bleiben, sonst die höchsten Würfel
-    liegen lassen und den Rest neu würfeln. Dreht nie."""
+class Anfaenger(Stammspieler):
+    """Wie der Stammspieler, aber mit größeren Fehlern (bis 15 Prozentpunkte unter der besten Option)
+    und nur in einem Drittel der Fälle nach den Faustregeln."""
     stufe = "Anfänger"
 
-    def waehle(self, empfehlung, rng):
-        erlaubt = {b.option.neu_fest: b.option for b in empfehlung.optionen if b.option.aktion != "drehen"}
-        stehen = next(o for o in erlaubt.values() if o.aktion == "stehen")
-        wurf = stehen.neu_fest
-        if bewerte(wurf)[0] >= STRASSE:
-            return stehen
-        behalten = tuple(w for w in wurf if w == max(wurf))
-        return erlaubt.get(behalten, stehen)
+    def __init__(self, temperatur: float = 0.3, grenze: float = 0.15, regeltreue: float = 1 / 3):
+        super().__init__(temperatur, grenze, regeltreue)
 
 
-STUFEN: dict[str, type[Bot]] = {b.stufe: b for b in (Anfaenger, Fortgeschritten, Profi)}
+STUFEN: dict[str, type[Bot]] = {b.stufe: b for b in (Anfaenger, Stammspieler, Mathematiker)}
 
-NAMEN = ("Ana", "Jenni", "Hanna", "Anika", "Roman", "Piotl", "Tess", "Danny", "Andy")
+NAMEN = ("Ana", "Jenni", "Hanna", "Anika", "Roman", "Peter", "Tess", "Danny", "Andy")
 
 
 def bot_namen(anzahl: int, rng: random.Random, gesperrt: str | Iterable[str] = ()) -> list[str]:

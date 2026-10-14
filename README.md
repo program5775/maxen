@@ -124,6 +124,16 @@ Unter den übrigen wird danach gestochen, wer die Bricken bekommt. Zu zweit gibt
 Beim Stechen würfelt jeder Beteiligte einmal mit allen drei Würfeln. Es zählt nur die **Augensumme**:
 6, 6, 6 (18) ist das höchste, 1, 1, 1 (3) das niedrigste Ergebnis. Bei gleicher Summe wird neu geworfen, zum Beispiel bei 6, 5, 1 gegen 4, 4, 4.
 
+## Die Tabelle im Spiel
+
+Die Tabelle zeigt pro Durchgang alle Spieler in Sitzordnung:
+
+- **Spieler:** 🚩 Startspieler, ◀ am Zug, 🤖 Computergegner. Wer im Durchgang nicht mitspielt, hat „Urlaub“.
+- **Bricken:** der aktuelle Stand, nach dem Durchgang „vorher → nachher“.
+- **Würfe** (unter dem Namen): Liegen gelassene Würfel sind grün, 🔄 bedeutet gedreht, ein „?“-Kästchen ist ein verdeckter Würfel.
+- **Ergebnis:** die Würfel des Spielers; solange sie verdeckt sind, nur die liegenden Würfel und „?“.
+- **Nach dem Durchgang:** Die Zeilen der Besten sind hellgrün, die des Verlierers hellrot hinterlegt.
+
 ## So entsteht die Empfehlung
 
 Die App bewertet einen einzelnen Durchgang. Sie optimiert die Chance, **in diesem Durchgang nicht Letzter zu werden**, nicht die höchste Augenzahl.

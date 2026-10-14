@@ -10,21 +10,30 @@ geändert hat, und zeichnet dann die ganze Seite neu. Raum-ID und Name stehen in
 man nach einem Neuladen ohne Eingabe zurückkommt.
 """
 import random
+import time
+from functools import partial
+from html import escape
 
 import streamlit as st
 
 from maxen.bots import STUFEN
 from maxen.raum import MAX_BOTS, WARTEN
 from maxen.regeln import bewerte, name, wurf_name
-from maxen.spiel import AM_WUERFELN, BEREIT, VERTEILEN, WUERFELN, Durchgang, aufzaehlung
-from ui import lade_engine, optionsknoepfe, optionstabelle, prozent, raeume, wuerfel_html, wuerfel_tabelle
+from maxen.spiel import AM_WUERFELN, BEREIT, WUERFELN, aufzaehlung
+from ui import (AUGEN, augen, dreh_text, ergebnis_html, lade_engine, optionstabelle, prozent, raeume, schritte_html,
+                tabelle_html, verdeckt)
+
+DIALOG_SEKUNDEN = 3     # so lange bleibt das Ergebnis-Pop-up offen
 
 ss = st.session_state
-ss.setdefault("spiel_raum", None)        # ID des Raums, in dem du bist
+ss.setdefault("spiel_raum", None)       # ID des Raums, in dem du bist
 ss.setdefault("spiel_name", None)        # dein Name, wie er im Raum steht
 ss.setdefault("spiel_seed", None)        # nur für Tests: fester Zufall für neue Räume
 ss.setdefault("spiel_version", -1)       # Version des Raums beim letzten Zeichnen
 ss.setdefault("spiel_meldung", None)
+ss.setdefault("spiel_dialog_key", None)  # Durchgang, dessen Ergebnis-Pop-up zuletzt gezeigt wurde
+ss.setdefault("spiel_dialog_bis", 0.0)   # bis wann es offen bleibt (time.monotonic)
+ss.setdefault("spiel_dialog_zu", False)  # vom Spieler weggeklickt
 ss.setdefault("spiel_url_geprueft", False)
 ss.setdefault("cfg_spiel_name", "")
 if "cfg_spiel_raum" not in ss:
@@ -50,19 +59,39 @@ def verlassen() -> None:
     st.query_params.clear()
 
 
+def dialog_zu(bestaetigen=None) -> None:
+    """Pop-up weggeklickt (X oder daneben): gilt als „Nächster Durchgang“. Nur, solange es noch offen
+    sein sollte; schließt es sich nach Ablauf der Zeit selbst, wird nichts bestätigt."""
+    offen = time.monotonic() < ss.spiel_dialog_bis
+    ss.spiel_dialog_zu = True
+    if offen and bestaetigen is not None:
+        bestaetigen()
+
+
 def einstellen(feld: str) -> None:
     r = raeume().raum(ss.spiel_raum)
     if r is not None:
         r.einstellen(ss.spiel_name, **{feld: ss[f"cfg_raum_{feld}"]})
 
 
-# Nach einem Neuladen: mit Raum und Name aus der URL zurück in den Raum, falls es ihn noch gibt
+def auswahl_ausfuehren(r, n: str, m, key: str, werte: tuple[int, ...]) -> None:
+    """Würfeln: die markierten Würfel bleiben liegen, der Rest wird neu gewürfelt."""
+    fest = tuple(sorted(werte[k] for k in ss.get(key) or ()))
+    o = next((o for o in r.optionen(n) if o.aktion == "legen" and o.neu_fest == fest), None)
+    if o is not None:
+        r.ausfuehren(n, m, o)
+
+
+# Nach einem Neuladen: mit Raum und Name aus der URL zurück in den Raum, aber nur, wenn du noch
+# drin bist. Wer gegangen ist oder entfernt wurde, muss bewusst neu beitreten.
 if not ss.spiel_url_geprueft:
     ss.spiel_url_geprueft = True
     q = st.query_params
-    if ss.spiel_raum is None and q.get("raum") and q.get("name") and raeume().raum(q["raum"]):
+    if ss.spiel_raum is None and q.get("raum") and q.get("name"):
         ss.cfg_spiel_raum, ss.cfg_spiel_name = q["raum"], q["name"]
-        betreten()
+        alt = raeume().raum(q["raum"])
+        if alt is not None and alt.ist_da(q["name"]):
+            betreten()
 
 raum = raeume().raum(ss.spiel_raum) if ss.spiel_raum else None
 if ss.spiel_raum and (raum is None or ss.spiel_name not in raum.menschen):
@@ -72,12 +101,15 @@ if ss.spiel_raum and (raum is None or ss.spiel_name not in raum.menschen):
     st.query_params.clear()
 
 
-@st.fragment(run_every=1.5)
+@st.fragment(run_every=1)
 def aktualisieren() -> None:
     """Fragt den Raum ab (prüft dabei die Zeitlimits) und zeichnet bei Änderungen alles neu.
     Während einer Pause mit Zeitlimit zeigt es den Countdown."""
     r = raeume().raum(ss.spiel_raum) if ss.spiel_raum else None
     if r is None or r.tick() != ss.spiel_version:
+        st.rerun(scope="app")
+    if ss.spiel_dialog_bis and time.monotonic() >= ss.spiel_dialog_bis:
+        ss.spiel_dialog_bis = 0.0          # Zeit um: Pop-up schließen
         st.rerun(scope="app")
     rest = r.restzeit()
     if rest is not None:
@@ -99,58 +131,52 @@ def zeile(e) -> str:
     return t
 
 
-def kurz(wurf) -> str:
-    return ",".join(map(str, sorted(wurf, reverse=True)))
-
-
-def wuerfe_spalte(z, sichtbar_alle: bool) -> str:
-    """Alle Würfe des Zugs: liegen gelassene Würfel fett, dahinter die neu gewürfelten,
-    verdeckte als „?“. Deine eigenen Würfe siehst du immer."""
-    sichtbar = len(z.schritte) if sichtbar_alle else z.sichtbar
-    teile = []
-    for k, sch in enumerate(z.schritte):
-        neu = kurz(sch.neu) if k < sichtbar else ",".join("?" * len(sch.neu))
-        teil = f"**{kurz(sch.fest)}** + {neu}" if sch.fest else neu
-        teile.append(f":material/autorenew: {teil}" if sch.gedreht else teil)
-    return " → ".join(teile)
-
-
-def ergebnis_spalte(z, meins: bool) -> str:
-    if z.wurf is None:
-        return "–"
-    if z.aufgedeckt:
-        return wurf_name(z.wurf)
-    return f"{wurf_name(z.wurf)} (verdeckt)" if meins else "verdeckt"
+def wurf_html(w) -> str:
+    """Ein Wurf beim Stechen: Würfel und Augensumme."""
+    return f"{augen(w)} = {sum(w)}"
 
 
 def spieler_spalte(i: int, start: int | None, am_zug: bool = False) -> str:
     sp = s.spieler[i]
-    n = sp.name + (" (du)" if i == ich else "") + (" :material/smart_toy:" if sp.bot else "")
+    n = escape(sp.name) + (" (du)" if i == ich else "") + (" 🤖" if sp.bot else "")
     if am_zug:
-        n = f"**{n}** :material/arrow_left:"
+        n = f"<b>{n}</b> ◀"
     if i == start:
-        n += " :material/flag:"
+        n += " 🚩"
     return n
 
 
 def bricken_spalte(vorher: int, nachher: int) -> str:
     if nachher > vorher:
-        return f":red[{vorher} → **{nachher}**]"
+        return f'<span class="mehr">{vorher} → <b>{nachher}</b></span>'
     if nachher < vorher:
-        return f":green[{vorher} → **{nachher}**]"
+        return f'<span class="weniger">{vorher} → <b>{nachher}</b></span>'
     return str(nachher)
 
 
-def durchgang_tabelle(d: Durchgang, haelfte, zeilen: list[dict]) -> None:
-    """Spieler ohne Platz im Durchgang (Urlaub, nicht im Finale) unten anhängen."""
-    for i in s.runde.teilnehmer:
-        if i not in d.reihenfolge:
-            dabei = i in haelfte.teilnehmer
-            zeilen.append({"Spieler": spieler_spalte(i, None), "Bricken": str(haelfte.bricken[i]) if dabei else "",
-                           "Würfe": "", "Ergebnis": "Urlaub" if dabei else "spielt nicht"})
-    st.table(zeilen, hide_index=True, alt=f"Durchgang {d.nummer}: Würfe, Ergebnisse und Bricken pro Spieler")
-    st.caption("Würfe: **fett** = liegen gelassen, dahinter + neu gewürfelt · "
-               ":material/autorenew: = gedreht · ? = verdeckt · :material/flag: = Startspieler")
+def durchgang_tabelle(haelfte, zeilen: dict[int, dict]) -> None:
+    """Eine Zeile pro Spieler der Runde, immer in Sitzordnung. Wer im Durchgang keinen Platz hat
+    (Urlaub in Phase 2, nicht im Finale), hat Urlaub. Die Würfe stehen als zweite Zeile unter dem
+    Namen, damit die Tabelle auf dem Handy in die Breite passt."""
+    alle = [zeilen.get(i) or {"Spieler": spieler_spalte(i, None), "Würfe": "", "Ergebnis": "Urlaub",
+                              "Bricken": str(haelfte.bricken[i]) if i in haelfte.teilnehmer else ""}
+            for i in s.runde.teilnehmer]
+    for z in alle:
+        if z["Würfe"]:
+            z["Spieler"] += f'<div class="wuerfe">{z["Würfe"]}</div>'
+    # Platz für alle Zeilen mit Würfen reservieren, damit nichts darunter springt, wenn die Tabelle wächst
+    hoehe = 2 + 4.6 * len(alle)
+    st.markdown(f'<div style="min-height: {hoehe:.1f}rem">'
+                + tabelle_html(["Spieler", "Bricken", "Ergebnis"], alle) + "</div>", unsafe_allow_html=True)
+
+
+def mein_wurf(z) -> None:
+    """Dein Wurf groß, verdeckte Würfel als „?“ (auch für dich selbst, wie unter dem Becher)."""
+    sch = z.schritte[-1]
+    zu = z.aufgedeckt
+    st.markdown(f'<div class="wuerfel">{augen(sch.fest, liegt=True)}'
+                f'{augen(sch.neu) if zu else verdeckt(len(sch.neu))}</div>', unsafe_allow_html=True)
+    st.markdown(f"**{wurf_name(z.wurf)}**" if zu else "**Verdeckt** – wird beim Aufdecken gezeigt.")
 
 
 def du(i: int, du_form: str, er_form: str) -> str:
@@ -160,8 +186,6 @@ def du(i: int, du_form: str, er_form: str) -> str:
 def namen(indizes) -> str:
     return aufzaehlung(s.name(i) for i in indizes)
 
-
-st.title("🎲🎲🎲 Maxen spielen") #
 
 # --- Einstieg ----------------------------------------------------------------------
 if raum is None:
@@ -198,8 +222,9 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
                                  required=True, on_change=einstellen, args=("bots",))
             st.segmented_control("Stärke", options=list(STUFEN), key="cfg_raum_stufe", required=True,
                                  on_change=einstellen, args=("stufe",))
-            st.caption("Anfänger: einfache Faustregel, dreht nie. Fortgeschritten: spielt meist gut, macht kleine "
-                       "Fehler, aber keine groben. Profi: spielt immer die Empfehlung der Engine.")
+            st.caption("Anfänger: macht öfter Fehler, hält sich nur manchmal an die Faustregeln. "
+                       "Stammspieler: spielt nach den Faustregeln vom Tisch und sonst meist gut. "
+                       "Mathematiker: spielt immer die Empfehlung der Engine.")
             genug = len(raum.menschen) + raum.bots >= 2
             st.button("Spiel starten", key="spiel_starten", type="primary", width="stretch",
                       on_click=raum.starten, args=(ich_name, marke), disabled=not genug,
@@ -241,29 +266,42 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
                     if a.verloren:
                         text += " " + du(a.empfaenger, "hast", "hat") + \
                             f" alle {a.nachher[a.empfaenger]} Bricken und {art} verloren."
-                if a.empfaenger == ich:
-                    st.error(text, icon=":material/sentiment_dissatisfied:")
-                elif ich in fertig.reihenfolge:
-                    st.success(text, icon=":material/sentiment_satisfied:")
-                else:
-                    st.info(text)
+                durchgang_tabelle(h, {
+                    z.spieler: {"Spieler": spieler_spalte(z.spieler, fertig.startspieler),
+                                "Bricken": bricken_spalte(a.vorher[z.spieler], a.nachher[z.spieler]),
+                                "Würfe": schritte_html(z, alles=True), "Ergebnis": ergebnis_html(z, alles=True),
+                                "_klasse": ("verlierer" if z.spieler == a.empfaenger
+                                            else "bester" if bewerte(a.ergebnisse[z.spieler]) == a.bestes
+                                            else "")}
+                    for z in fertig.zuege
+                })
 
-                ergebnisse = a.ergebnisse
-                reihe = sorted(ergebnisse, key=lambda i: bewerte(ergebnisse[i]), reverse=True)
-                durchgang_tabelle(fertig, h, [
-                    {"Spieler": spieler_spalte(i, fertig.startspieler),
-                     "Bricken": bricken_spalte(a.vorher[i], a.nachher[i]),
-                     "Würfe": wuerfe_spalte(fertig.zug(i), True), "Ergebnis": wurf_name(ergebnisse[i])}
-                    for i in reihe
-                ])
-                for stich in a.stechen:
-                    runden = [", ".join(f"{s.name(i)} {sum(w)}" for i, w in wuerfe.items()) for wuerfe in stich.runden]
-                    st.caption(f"Stechen, {stich.worum}: " + " · dann ".join(runden))
-                if a.geber is not None and a.nachher[a.geber] == 0:
-                    st.caption(du(a.geber, "hast", "hat") + " keine Bricken mehr und damit Urlaub.")
-                if a.phase_2:
-                    st.info("Die Mitte ist leer. Ab jetzt Phase 2: Der Beste gibt Bricken an den Schlechtesten ab. "
-                            "Wer keine Bricken hat, hat Urlaub.", icon=":material/swap_horiz:")
+                def ergebnis_inhalt() -> None:
+                    if a.empfaenger == ich:
+                        st.error(text, icon=":material/sentiment_dissatisfied:")
+                    elif ich in fertig.reihenfolge:
+                        st.success(text, icon=":material/sentiment_satisfied:")
+                    else:
+                        st.info(text)
+                    for stich in a.stechen:
+                        runden = [", ".join(f"{escape(s.name(i))} {wurf_html(w)}" for i, w in wuerfe.items())
+                                  for wuerfe in stich.runden]
+                        st.caption(f"Stechen, {stich.worum}: " + " · dann ".join(runden), unsafe_allow_html=True)
+                    if a.geber is not None and a.nachher[a.geber] == 0 and not a.verloren:
+                        st.caption(du(a.geber, "hast", "hat") + " keine Bricken mehr und damit Urlaub.")
+                    if a.phase_2:
+                        st.info("Die Mitte ist leer.", icon=":material/swap_horiz:")
+
+                # Ergebnis als Pop-up, das nach DIALOG_SEKUNDEN von selbst verschwindet. Der Dialog muss
+                # bei jedem Lauf neu aufgerufen werden, sonst schließt ihn der nächste Rerun.
+                if ss.spiel_dialog_key != id(fertig):
+                    ss.spiel_dialog_key, ss.spiel_dialog_zu = id(fertig), False
+                    ss.spiel_dialog_bis = time.monotonic() + DIALOG_SEKUNDEN
+                if not ss.spiel_dialog_zu and time.monotonic() < ss.spiel_dialog_bis:
+                    weiter = None
+                    if ich in p.warten_auf and not p.runde:
+                        weiter = partial(raum.bestaetigen, ich_name, marke)
+                    st.dialog("Ergebnis", on_dismiss=partial(dialog_zu, weiter))(ergebnis_inhalt)()
 
             if p.runde:
                 if r.verlassen:
@@ -289,16 +327,14 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
         else:
             # --- Laufender Durchgang -------------------------------------------------------
             h, d = s.haelfte, s.durchgang
-            phase = "Phase 1" if h.phase == VERTEILEN else "Phase 2"
-            grenze = "Schuss" if d.schuss else (f"Wurfgrenze {d.grenze}" if d.grenze else "Wurfgrenze offen")
-            st.caption(f"Runde {len(s.runden)} · {h.art} · {phase} · Mitte: {h.mitte} · Durchgang {d.nummer} · {grenze}")
-            durchgang_tabelle(d, h, [
-                {"Spieler": spieler_spalte(z.spieler, d.startspieler, z.spieler in s.offen),
-                 "Bricken": str(h.bricken[z.spieler]),
-                 "Würfe": wuerfe_spalte(z, z.spieler == ich), "Ergebnis": ergebnis_spalte(z, z.spieler == ich)}
-                for z in d.zuege
-            ])
+            st.caption(f"Runde {len(s.runden)} · {h.art} · Mitte: {h.mitte}")
             zug = d.zug(ich) if ich in s.offen and s.stechen is None else None
+            durchgang_tabelle(h, {
+                z.spieler: {"Spieler": spieler_spalte(z.spieler, d.startspieler, z.spieler in s.offen),
+                            "Bricken": str(h.bricken[z.spieler]), "Würfe": schritte_html(z),
+                            "Ergebnis": ergebnis_html(z), "_am_zug": z.spieler in s.offen}
+                for z in d.zuege
+            })
 
             if s.stechen is not None and ich in s.stechen.kandidaten:
                 stechen = s.stechen
@@ -309,11 +345,12 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
                            + ("Die höchste Summe gewinnt." if stechen.hoch else "Die niedrigste Summe verliert.")
                            + " Bei gleicher Summe wird neu geworfen.")
                 for wuerfe in stechen.runden:
-                    st.caption("Gleiche Summe: " + ", ".join(f"{s.name(i)} {kurz(w)} = {sum(w)}"
-                                                             for i, w in wuerfe.items()))
+                    st.caption("Gleiche Summe: " + ", ".join(f"{escape(s.name(i))} {wurf_html(w)}"
+                                                             for i, w in wuerfe.items()), unsafe_allow_html=True)
                 if stechen.aktuell:
-                    st.caption("Schon gewürfelt: " + ", ".join(f"{s.name(i)} {kurz(w)} = {sum(w)}"
-                                                               for i, w in stechen.aktuell.items()))
+                    st.caption("Schon gewürfelt: " + ", ".join(f"{escape(s.name(i))} {wurf_html(w)}"
+                                                               for i, w in stechen.aktuell.items()),
+                               unsafe_allow_html=True)
                 if ich in stechen.offen:
                     st.button("Würfeln", key="spiel_wuerfeln", type="primary", width="stretch",
                               on_click=raum.ausfuehren, args=(ich_name, marke, WUERFELN), icon=":material/casino:")
@@ -322,6 +359,8 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
 
             elif zug is None:
                 wer = namen(s.offen)
+                if ich in d.reihenfolge and d.zug(ich).wurf is not None:
+                    mein_wurf(d.zug(ich))        # bleibt bis zum Ende des Durchgangs stehen
                 if s.stechen is not None:
                     st.markdown(f"**Stechen:** {namen(s.stechen.kandidaten)} stechen, {s.stechen.worum}. "
                                 f"Warte auf {wer}.")
@@ -330,12 +369,11 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
 
             elif zug.stand == BEREIT:
                 if d.schuss:
-                    st.markdown("**Schuss:** Alle haben nur einen Wurf und würfeln gleichzeitig.")
+                    st.markdown("**Schuss:**")
                 elif zug.bestimmt_grenze:
-                    st.markdown("**Du bist Startspieler.** Du darfst bis zu dreimal würfeln. "
-                                "Wie oft du würfelst, so oft dürfen die anderen höchstens würfeln.")
+                    st.markdown("**Du fängst an.")
                 else:
-                    st.markdown(f"Du darfst höchstens **{zug.grenze}-mal** würfeln.")
+                    st.markdown(f"Du darfst **{zug.grenze}-mal** würfeln.")
                 if tipps:
                     start = lade_engine(zug.grenze, d.gegner, zug.bestimmt_grenze).startwert()
                     st.caption(f"Vor dem ersten Wurf: {prozent(start.nutzen)} Chance, nicht zu verlieren.")
@@ -343,24 +381,55 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
                           on_click=raum.ausfuehren, args=(ich_name, marke, WUERFELN), icon=":material/casino:")
 
             else:
-                if zug.stand == AM_WUERFELN:
-                    st.subheader(f"Wurf {zug.wurf_nr} (Startspieler, bis zu 3)" if zug.bestimmt_grenze
-                                 else f"Wurf {zug.wurf_nr} von {zug.grenze}")
-                else:
-                    st.subheader("Aufdecken: drehen?")
-                    st.caption("Drehst du, würfelst du verdeckt einen Bonuswurf, bevor die anderen aufdecken.")
-                wurf = tuple(sorted(zug.wurf, reverse=True))
-                st.markdown(wuerfel_html((), wurf), unsafe_allow_html=True)
-                st.markdown(f"**{wurf_name(wurf)}**")
+                opts = zug.optionen()
                 emp = s.empfehlung(ich) if tipps else None
+                nutzen = {b.option: b.nutzen for b in emp.optionen} if emp is not None else {}
+
+                def mit_chance(text: str, o) -> str:
+                    return f"{text} · {prozent(nutzen[o])}" if o in nutzen else text
+
+                stehen = next(o for o in opts if o.aktion == "stehen")
+                if zug.stand == AM_WUERFELN:
+                    st.caption(f"Wurf {zug.wurf_nr} (Startspieler, bis zu 3)" if zug.bestimmt_grenze
+                               else f"Wurf {zug.wurf_nr} von {zug.grenze}")
+                    # Würfel antippen, die liegen bleiben; vorbelegt mit denen, die schon lagen
+                    sch = zug.schritte[-1]
+                    werte = tuple(sorted(sch.fest, reverse=True)) + tuple(sorted(sch.neu, reverse=True))
+                    key = f"spiel_auswahl_{marke[0]}_{marke[1]}"
+                    # Pills merken sich die Auswahl über die Beschriftung: gleiche Augen (6,6) per
+                    # unsichtbarem Zeichen unterscheidbar machen
+                    with st.container(key="spiel_wuerfel"):
+                        auswahl = st.pills("Liegen lassen", options=[0, 1, 2],
+                                           format_func=lambda k: AUGEN[werte[k]] + "​" * k,
+                                           selection_mode="multi", default=list(range(len(sch.fest))), key=key,
+                                           label_visibility="collapsed")
+                    fest = tuple(sorted(werte[k] for k in auswahl))
+                else:
+                    st.subheader("Drehst du?")
+                    st.markdown(f'<div class="wuerfel">{augen(zug.wurf)}</div>', unsafe_allow_html=True)
+                    st.markdown(f"**{wurf_name(zug.wurf)}**")
                 if emp is not None:
                     st.success(emp.begruendung(), icon="👉")
                     if zug.bestimmt_grenze and zug.stand == AM_WUERFELN and zug.wurf_nr < 3:
                         st.caption(f"Bleibst du jetzt stehen, dürfen die anderen höchstens {zug.wurf_nr}-mal würfeln.")
-                    if emp.beste.option.aktion != "stehen":
-                        wuerfel_tabelle(wurf, emp.beste.option)
-                st.markdown("**Was machst du?**")
-                optionsknoepfe(zug.optionen(), lambda o, n, m: raum.ausfuehren(n, m, o), ich_name, marke, emp=emp)
+
+                if zug.stand == AM_WUERFELN:
+                    neu = 3 - len(fest)
+                    legen = next((o for o in opts if o.aktion == "legen" and o.neu_fest == fest), None)
+                    text = ("Alle 3 neu würfeln" if neu == 3 else f"{neu} Würfel neu würfeln") if neu else "Würfeln"
+                    st.button(mit_chance(text, legen), key="spiel_wuerfeln", type="primary" if neu else "secondary",
+                              width="stretch", icon=":material/casino:", disabled=legen is None,
+                              on_click=auswahl_ausfuehren, args=(raum, ich_name, marke, key, werte))
+                    st.button(mit_chance(f"Klopfen ({wurf_name(zug.wurf)})", stehen), key="spiel_stehen",
+                              type="secondary" if neu else "primary", width="stretch", icon=":material/front_hand:",
+                              on_click=raum.ausfuehren, args=(ich_name, marke, stehen))
+                else:
+                    st.button(mit_chance("Nicht drehen", stehen), key="spiel_stehen", type="primary",
+                              width="stretch", on_click=raum.ausfuehren, args=(ich_name, marke, stehen))
+                for o in opts:
+                    if o.aktion == "drehen":
+                        st.button(mit_chance(dreh_text(o), o), key=f"opt_{o.aktion}_{o.neu_fest}", width="stretch",
+                                  icon=":material/autorenew:", on_click=raum.ausfuehren, args=(ich_name, marke, o))
                 if emp is not None:
                     with st.expander("Wahrscheinlichkeiten pro Option"):
                         optionstabelle(emp)

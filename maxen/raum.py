@@ -81,7 +81,7 @@ class Raum:
         self.menschen: list[str] = []
         self.ersteller = ""
         self.bots = 0
-        self.stufe = "Fortgeschritten"
+        self.stufe = "Stammspieler"
         self.tipps = False
         self.sitzung: Sitzung | None = None
         self.pause: Pause | None = None
@@ -117,6 +117,11 @@ class Raum:
         if self.pause is None or len(s.ausgewertet) <= self._gesehen:
             return None
         return s.ausgewertet[-1]
+
+    @gesperrt
+    def ist_da(self, name: str) -> bool:
+        """`name` ist im Raum (nicht gegangen und nicht entfernt)."""
+        return any(schluessel(n) == schluessel(name) for n in self.menschen)
 
     def index(self, name: str) -> int | None:
         """Platz von `name` in der Sitzung; None im Warteraum und für Zuschauer."""
@@ -312,6 +317,10 @@ class Raum:
         runde = s.runde.beendet
         limit = (PAUSE_RUNDE if runde else PAUSE_DURCHGANG) if len(self.menschen) >= 2 else None
         am_tisch = {i for i in s.sitzordnung if s.spieler[i].bot is None and i not in s.gegangen}
+        if not runde:
+            # Wer im Durchgang nicht gespielt hat (Urlaub, nicht im Finale), muss nicht bestätigen,
+            # es sei denn, es hat gar kein Mensch gespielt: dann wartet das Spiel auf alle.
+            am_tisch = am_tisch & set(s.ausgewertet[-1].reihenfolge) or am_tisch
         self.pause = Pause(runde, self.uhr(), limit, am_tisch)
         self._epoche += 1
         if not am_tisch:

@@ -6,7 +6,7 @@ Ohne Streamlit. Der Zufall kommt ausschließlich aus dem übergebenen
 
 Bedienung (UI oder Test):
 
-    s = Sitzung([Spieler("Anna"), Spieler("Ben"), Spieler("Bot 1", Profi())], random.Random(1))
+    s = Sitzung([Spieler("Anna"), Spieler("Ben"), Spieler("Bot 1", Mathematiker())], random.Random(1))
     while not s.runde.beendet:
         s.bots_ziehen()
         for i in s.offen:               # Menschen, die jetzt handeln dürfen
@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import TYPE_CHECKING, Callable
 
+from .bots import Lage
 from .engine import Empfehlung, Engine, Option, darf_drehen, darf_wuerfeln, optionen
 from .regeln import GENERAL, MAX, NORMAL, PASCH, STRASSE, Schluessel, Wurf, bewerte, name, wurf_name
 
@@ -478,9 +479,9 @@ class Haelfte:
             self.bricken[empfaenger] += n
             t.melde("bricken", f"Bestes Ergebnis: {name(hoch)}. {t.name(geber)} gibt {n} Bricken "
                                f"an {t.name(empfaenger)} ab.", empfaenger)
-            if self.bricken[geber] == 0:
-                t.melde("urlaub", f"{t.name(geber)} hat keine Bricken mehr und hat Urlaub.", geber)
             verloren = self.bricken[empfaenger] == BRICKEN
+            if self.bricken[geber] == 0 and not verloren:   # sonst ist die Hälfte vorbei
+                t.melde("urlaub", f"{t.name(geber)} hat keine Bricken mehr und hat Urlaub.", geber)
             self._ausgewertet(hoch, empfaenger, geber=geber, anzahl=n, verloren=verloren)
             if verloren:
                 self._verloren(empfaenger)
@@ -687,5 +688,8 @@ class Sitzung(Tisch):
             if len(opts) == 1:
                 self.ausfuehren(opts[0], s)
             else:
-                self.ausfuehren(bot.waehle(self.empfehlung(s), self.rng), s)
+                zug = d.zug(s)
+                h = self.haelfte
+                lage = Lage(zug.wurf, zug.wurf_nr, zug.bestimmt_grenze, h.bricken[s], h.phase, h.mitte)
+                self.ausfuehren(bot.waehle(self.empfehlung(s), self.rng, lage), s)
                 return

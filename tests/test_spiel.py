@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from maxen.bots import Anfaenger, Fortgeschritten, Profi
+from maxen.bots import Anfaenger, Mathematiker, Stammspieler
 from maxen.engine import Option
 from maxen.regeln import bewerte
 from maxen.spiel import (
@@ -24,7 +24,7 @@ class GezinkterZufall:
 def tisch(augen=(), n=3, bots=False):
     """`bots`: True = alle Bots, eine Menge = diese Plätze sind Bots, sonst nur Menschen."""
     ist_bot = (lambda i: bots) if isinstance(bots, bool) else (lambda i: i in bots)
-    return Tisch([Spieler(f"S{i}", Profi() if ist_bot(i) else None) for i in range(n)], GezinkterZufall(augen))
+    return Tisch([Spieler(f"S{i}", Mathematiker() if ist_bot(i) else None) for i in range(n)], GezinkterZufall(augen))
 
 
 def waehle(ziel, neu_fest=None, aktion=None) -> Option:
@@ -201,6 +201,8 @@ def test_abgeben():
     assert h.bricken == {0: 0, 1: BRICKEN, 2: 0} and h.verlierer == 1
     a = h.durchgang.auswertung
     assert (a.empfaenger, a.geber, a.anzahl, a.verloren) == (1, 2, 2, True)
+    # Wer die letzten Bricken abgibt, während der andere alle 15 hat, geht nicht in Urlaub: Die Hälfte ist vorbei
+    assert [e.spieler for e in h.tisch.protokoll if e.art == "urlaub"] == [0]
 
 
 def test_general_beendet_haelfte():
@@ -337,7 +339,7 @@ def spiele_runde(s: Sitzung, rng: random.Random, pruefe=True) -> None:
 
 def neue_sitzung(seed, menschen=("Anna",)):
     spieler = [Spieler(n) for n in menschen] + [
-        Spieler("Profi", Profi()), Spieler("Fortgeschritten", Fortgeschritten()), Spieler("Anfänger", Anfaenger())]
+        Spieler("Mathematiker", Mathematiker()), Spieler("Stammspieler", Stammspieler()), Spieler("Anfänger", Anfaenger())]
     return Sitzung(spieler, random.Random(seed))
 
 
@@ -386,7 +388,7 @@ def test_bot_engine_parameter():
         aufrufe.append((wuerfe, gegner, startspieler))
         return standard_engine(wuerfe, gegner, startspieler)
 
-    s = Sitzung([Spieler(f"Bot {i}", Profi()) for i in range(3)], random.Random(1), engine=engine)
+    s = Sitzung([Spieler(f"Bot {i}", Mathematiker()) for i in range(3)], random.Random(1), engine=engine)
     while s.durchgang.schuss:
         s.bot_schritt()
     assert aufrufe == []                                       # im Schuss gibt es nichts zu entscheiden
@@ -450,7 +452,7 @@ def test_verlassen_mitten_in_der_runde():
 
 
 def test_verlassen_nach_der_runde_und_zu_wenige_spieler():
-    s = Sitzung([Spieler("Anna"), Spieler("Profi", Profi())], random.Random(6))
+    s = Sitzung([Spieler("Anna"), Spieler("Mathe", Mathematiker())], random.Random(6))
     spiele_runde(s, random.Random(6), pruefe=False)
     verlierer = s.runde.verlierer
     s.verlassen(1)

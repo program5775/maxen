@@ -6,13 +6,25 @@ import pytest
 from maxen import Engine
 from maxen.bots import NAMEN
 from maxen.raum import PAUSE_DURCHGANG
-from ui import raeume
+from maxen.spiel import AM_WUERFELN, FERTIG, VERDECKT, Schritt, Zug
+from maxen.engine import optionen
+from ui import AUGEN, augen, dreh_text, ergebnis_html, raeume, schritte_html
+
+AUGEN_WERT = {v: k for k, v in AUGEN.items()}
 
 APP = "../app.py"
 
 
 def starte() -> AppTest:
     at = AppTest.from_file(APP, default_timeout=10).run()
+    assert not at.exception
+    return at
+
+
+def assistent() -> AppTest:
+    """Neue Sitzung auf der Seite Assistent (Startseite ist Spielen)."""
+    at = starte()
+    at.switch_page("app_pages/assistent.py").run()
     assert not at.exception
     return at
 
@@ -26,7 +38,7 @@ def wuerfle(at: AppTest, *augen) -> None:
 
 
 def test_assistent_empfehlung_und_ablauf():
-    at = starte()
+    at = assistent()
     assert at.subheader[0].value == "Wurf 1 von 3"
     wuerfle(at, 2, 3, 5)
     emp = Engine(3, 1).empfehlung((2, 3, 5), 1)
@@ -55,7 +67,7 @@ def test_assistent_empfehlung_und_ablauf():
 
 
 def test_assistent_startspieler():
-    at = starte()
+    at = assistent()
     at.toggle(key="cfg_start").set_value(True).run()
     assert at.subheader[0].value == "Wurf 1 (Startspieler, bis zu 3)"
     wuerfle(at, 4, 4, 6)
@@ -64,11 +76,11 @@ def test_assistent_startspieler():
 
 
 def test_seitenwechsel_behaelt_eingaben():
-    at = starte()
+    at = assistent()
     at.number_input(key="cfg_gegner").set_value(3).run()
     wuerfle(at, 6, 6, 2)
     at.switch_page("app_pages/spiel.py").run()
-    assert not at.exception and at.title[0].value == "🎲🎲🎲 Maxen spielen"
+    assert not at.exception and at.button(key="spiel_betreten") and not at.title
     at.switch_page("app_pages/assistent.py").run()
     assert not at.exception
     assert at.number_input(key="cfg_gegner").value == 3
@@ -92,18 +104,25 @@ def raum_von(at: AppTest):
     return raeume().raum(at.session_state.spiel_raum)
 
 
+def tabelle(at: AppTest) -> str:
+    """HTML der Tabelle des Durchgangs."""
+    return next(m.value for m in at.markdown if 'class="maxen"' in m.value)
+
+
 def schritt(at: AppTest) -> bool:
     """Neu zeichnen (wie das Polling) und, falls möglich, einen Knopf drücken:
-    Würfeln, Ergebnis bestätigen oder die erste Option."""
+    Würfeln (mit den vorbelegten Würfeln), Ergebnis bestätigen, Drehen oder Stehen."""
     at.run()
     assert not at.exception
-    keys = [b.key for b in at.button]
+    keys = [b.key for b in at.button if not b.disabled]
     if "spiel_wuerfeln" in keys:
         at.button(key="spiel_wuerfeln").click()
     elif "spiel_bestaetigen" in keys:
         at.button(key="spiel_bestaetigen").click()
     elif any(k and k.startswith("opt_") for k in keys):
         next(b for b in at.button if b.key and b.key.startswith("opt_")).click()
+    elif "spiel_stehen" in keys:
+        at.button(key="spiel_stehen").click()
     else:
         return False
     at.run()
@@ -126,7 +145,7 @@ def spiele(ats, bis, schritte=3000) -> None:
     raise AssertionError("Spiel ist nicht fertig geworden")
 
 
-def starte_spiel(at: AppTest, bots: int, stufe="Profi") -> None:
+def starte_spiel(at: AppTest, bots: int, stufe="Mathematiker") -> None:
     at.segmented_control(key="cfg_raum_bots").set_value(bots).run()
     at.segmented_control(key="cfg_raum_stufe").set_value(stufe).run()
     at.button(key="spiel_starten").click().run()
@@ -147,7 +166,7 @@ def test_spiel_komplette_haelfte_gegen_bots():
     assert r.tipps
     spiele(at, lambda s: s.runde.haelften[0].verlierer is not None and r.pause is not None)
     # Ergebnis der verlorenen Hälfte steht da, bis es bestätigt wird; allein ohne Zeitlimit
-    assert at.table[0].value.shape[0] == 4 and at.caption[0].value.endswith("Ergebnis")
+    assert tabelle(at).count("<tr") == 1 + 4 and at.caption[0].value.endswith("Ergebnis")
     assert any(b.label.startswith("Weiter: ") or b.label == "Nächste Runde" for b in at.button)
     assert r.restzeit() is None
     at.toggle(key="cfg_raum_tipps").set_value(False).run()
@@ -169,8 +188,52 @@ def test_spiel_ohne_tipp_verraet_nichts():
     spiele(at, lambda s: r.pause is None and s.am_zug is not None and s.am_zug.spieler == 0
            and s.am_zug.wurf is not None)
     at.run()
-    knoepfe = [b for b in at.button if b.key.startswith("opt_")]
+    knoepfe = [b for b in at.button if b.key in ("spiel_wuerfeln", "spiel_stehen") or b.key.startswith("opt_")]
     assert knoepfe and all("%" not in b.label for b in knoepfe) and not at.success
+
+
+def test_spiel_wuerfel_markieren():
+    """Angetippte Würfel bleiben liegen, der Rest wird neu gewürfelt; die Tabelle folgt der Sitzordnung."""
+    at = betrete("markieren", "Anna", seed=6)
+    starte_spiel(at, 2)
+    r = raum_von(at)
+    s = r.sitzung
+    spiele(at, lambda s: r.pause is None and s.am_zug is not None and s.am_zug.spieler == 0
+           and s.am_zug.stand == AM_WUERFELN)
+    at.run()
+    zug = s.durchgang.zug(0)
+    reihe = [s.name(i) for i in s.runde.teilnehmer]
+    html = tabelle(at)
+    assert [html.index(n) for n in reihe] == sorted(html.index(n) for n in reihe)
+    auswahl = at.pills[0]
+    werte = [AUGEN_WERT[o.strip("​")] for o in auswahl.options]
+    assert len(set(auswahl.options)) == 3                     # auch bei gleichen Augen unterscheidbar
+    auswahl.set_value([0, 2]).run()
+    assert "1 Würfel neu würfeln" in at.button(key="spiel_wuerfeln").label
+    nr = zug.wurf_nr
+    at.button(key="spiel_wuerfeln").click().run()
+    assert not at.exception and zug.wurf_nr == nr + 1
+    assert zug.schritte[-1].fest == tuple(sorted((werte[0], werte[2])))
+    # alle drei markiert: nur noch Stehen bleiben
+    if zug.stand == AM_WUERFELN:
+        at.pills[0].set_value([0, 1, 2]).run()
+        assert at.button(key="spiel_wuerfeln").disabled
+        at.button(key="spiel_stehen").click().run()
+        assert not at.exception and zug.stand == FERTIG
+
+
+def test_verdeckter_wurf_auch_fuer_dich_verdeckt():
+    z = Zug(0, grenze=3, wurf_nr=3, wurf=(1, 1, 5), stand=VERDECKT, aufgedeckt=False,
+            schritte=[Schritt((), (2, 3, 6)), Schritt((), (1, 4, 6)), Schritt((1, 1), (5,))])
+    assert schritte_html(z).count('class="q"') == 1 and AUGEN[5] not in schritte_html(z).split("→")[-1]
+    assert ergebnis_html(z) == augen((1, 1), liegt=True) + '<span class="q"></span>'   # „Max ?“
+    assert ergebnis_html(z, alles=True) == augen((1, 1, 5))                               # Würfel statt „Max 5“
+
+
+def test_dreh_text_mit_wuerfelsymbolen():
+    texte = {dreh_text(o) for o in optionen((6, 6, 6), True, True) if o.aktion == "drehen"}
+    assert texte == {"⚅ ⚅ zu ⚀ drehen, ⚅ liegen lassen und 1 Würfel neu", "⚅ ⚅ zu ⚀ drehen und 2 Würfel neu",
+                     "⚅ ⚅ ⚅ zu ⚀ ⚀ drehen und 1 Würfel neu"}
 
 
 def test_spiel_stechen_per_wuerfeln():
@@ -241,6 +304,14 @@ def test_zuschauer_und_entfernen():
     cleo.run()
     assert cleo.button(key="spiel_betreten")
     assert any("nicht mehr in diesem Raum" in w.value for w in cleo.warning)
+    # Ein altes Handy mit Raum und Name in der URL kommt nicht von selbst zurück
+    alt = AppTest.from_file(APP, default_timeout=10)
+    alt.query_params["raum"] = "zuschauen"
+    alt.query_params["name"] = "Cleo"
+    alt.run()
+    alt.switch_page("app_pages/spiel.py").run()
+    assert not alt.exception and alt.session_state.spiel_raum is None
+    assert alt.text_input(key="cfg_spiel_name").value == "Cleo" and "Cleo" not in raum_von(anna).menschen
 
 
 def test_betreten_ohne_name():
