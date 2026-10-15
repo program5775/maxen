@@ -68,11 +68,23 @@ def test_drehen_nur_zu_erlaubten_zeitpunkten():
         return any(o.aktion == "drehen" for o in z.optionen())
     assert dreht(3, 1, AM_WUERFELN) and dreht(3, 2, AM_WUERFELN)
     assert dreht(3, 3, VERDECKT)              # beim Aufdecken -> Bonuswurf
-    assert not dreht(3, 2, VERDECKT)          # nach Wurf 2 stehen geblieben: kein Drehen beim Aufdecken
+    assert not dreht(3, 2, VERDECKT)          # nach Wurf 2 geklopft: kein Drehen beim Aufdecken
     assert not dreht(3, 4, FERTIG)            # nach dem Bonuswurf ist Schluss
     assert dreht(2, 1, AM_WUERFELN)
     assert not dreht(2, 2, VERDECKT)
     assert not dreht(1, 1, VERDECKT)
+
+
+def test_nur_einmal_drehen_pro_zug():
+    t = tisch([6, 6, 2,  6, 6,  6, 6])
+    z = Zug(0, grenze=3, bestimmt_grenze=True)
+    z.ausfuehren(WUERFELN, t)
+    z.ausfuehren(waehle(z, (1,)), t)          # 6,6 zu 1 drehen, 2 Würfel neu
+    assert z.gedreht and (z.wurf, z.wurf_nr) == ((1, 6, 6), 2)
+    assert all(o.aktion != "drehen" for o in z.optionen())      # wieder 6,6: kein zweites Mal
+    z.ausfuehren(waehle(z, (1,)), t)
+    assert (z.wurf, z.stand) == ((1, 6, 6), VERDECKT)
+    assert [o.aktion for o in z.optionen()] == ["klopfen"]       # auch beim Aufdecken kein Bonuswurf
 
 
 # --- Durchgang ---------------------------------------------------------------
@@ -81,24 +93,26 @@ def test_wurfgrenze_durch_startspieler():
     d = Durchgang(t, [0, 1, 2])
     d.ausfuehren(WUERFELN)
     d.ausfuehren(waehle(d.am_zug, ()))        # alle neu
-    d.ausfuehren(waehle(d.am_zug, aktion="stehen"))
+    d.ausfuehren(waehle(d.am_zug, aktion="klopfen"))
     assert d.grenze == 2
-    assert d.zug(0).aufgedeckt and d.zug(0).stand == FERTIG    # nach Wurf 2 stehen geblieben: offen
+    assert d.zug(0).aufgedeckt and d.zug(0).stand == FERTIG    # nach Wurf 2 geklopft: offen
     assert d.am_zug.spieler == 1 and d.am_zug.grenze == 2
     d.ausfuehren(WUERFELN)                    # 6,6,2: nach Wurf 1 darf gedreht werden
     assert d.am_zug.aufgedeckt
     d.ausfuehren(waehle(d.am_zug, (1, 2)))    # -> 1,2,3, Zug ist nach Wurf 2 automatisch vorbei
     assert d.zug(1).verlauf == [(2, 6, 6), (1, 2, 3)]
     assert d.zug(1).schritte[1] == Schritt((1, 2), (3,), gedreht=True)
+    assert d.zug(1).stand == VERDECKT and not d.zug(1).aufgedeckt   # letzter erlaubter Wurf: verdeckt
     assert d.am_zug.spieler == 2
     d.ausfuehren(WUERFELN)
-    d.ausfuehren(waehle(d.am_zug, aktion="stehen"))
+    d.ausfuehren(waehle(d.am_zug, aktion="klopfen"))
     assert d.fertig and all(z.aufgedeckt for z in d.zuege)
     assert d.ergebnisse == {0: (4, 4, 6), 1: (1, 2, 3), 2: (1, 1, 4)}
     assert "Die anderen dürfen höchstens 2-mal würfeln." in texte(t)
-    assert "S0 bleibt nach Wurf 2 stehen: 6, 4, 4 (644)." in texte(t)
-    assert "S1 hat zweimal gewürfelt: 3, 2, 1 (Straße 3)." in texte(t)
-    assert not any(e.art == "aufdecken" for e in t.protokoll)  # alles war schon offen
+    assert "S0 klopft nach Wurf 2: 6, 4, 4 (644)." in texte(t)
+    assert "S1 hat zweimal gewürfelt, das Ergebnis ist verdeckt." in texte(t)
+    assert "S1 deckt auf: 3, 2, 1 (Straße 3)." in texte(t)
+    assert [e.spieler for e in t.protokoll if e.art == "aufdecken"] == [1]   # nur S1 war verdeckt
 
 
 def test_schuss():
@@ -139,7 +153,7 @@ def test_drehen_beim_aufdecken_sofort():
     # Aufdecken: Startspieler deckt auf und muss sofort entscheiden, S1 hat noch nicht aufgedeckt
     z = d.am_zug
     assert z.spieler == 0 and z.aufgedeckt and not d.zug(1).aufgedeckt
-    assert {o.aktion for o in z.optionen()} == {"stehen", "drehen"}
+    assert {o.aktion for o in z.optionen()} == {"klopfen", "drehen"}
     assert texte(t)[-1] == "S0 deckt auf: 6, 6, 2 (662)."
     d.ausfuehren(waehle(z, (1, 2)))           # Bonuswurf: 1 -> Max 2
     assert d.fertig
@@ -156,9 +170,9 @@ def test_kein_drehen_beim_aufdecken_nach_wurf_2():
     d = Durchgang(t, [0, 1])
     d.ausfuehren(WUERFELN)
     d.ausfuehren(waehle(d.am_zug, ()))
-    d.ausfuehren(waehle(d.am_zug, aktion="stehen"))   # mit 6,6,2 nach Wurf 2
+    d.ausfuehren(waehle(d.am_zug, aktion="klopfen"))   # mit 6,6,2 nach Wurf 2
     d.ausfuehren(WUERFELN)
-    d.ausfuehren(waehle(d.am_zug, aktion="stehen"))
+    d.ausfuehren(waehle(d.am_zug, aktion="klopfen"))
     assert d.fertig and d.ergebnisse[0] == (2, 6, 6)
 
 
@@ -232,7 +246,7 @@ def test_stechen_nach_augensumme():
     assert (h.stechen.worum, h.stechen.kandidaten) == ("wer abgibt", [0, 1])
     assert texte(t)[-1] == "Gleichstand: S0 und S1 stechen, wer abgibt."
     with pytest.raises(ValueError):
-        h.ausfuehren(Option("stehen", (1, 1, 3), "stehen bleiben"))
+        h.ausfuehren(Option("klopfen", (1, 1, 3), "Klopfen"))
     h.ausfuehren(WUERFELN)
     assert (h.stechen.worum, h.stechen.kandidaten) == ("wer die Bricken bekommt", [2, 3])
     h.ausfuehren(WUERFELN)
@@ -274,13 +288,32 @@ def test_stechen_unter_bots_sofort():
 
 
 def test_stechen_wenn_alle_gleich():
-    """Phase 2, alle gleich: der Sieger des Stechens gibt ab, unter den übrigen wird erneut gestochen."""
-    t = tisch([6, 6, 6,  1, 1, 1], n=2)
-    h = Haelfte(t, [0, 1], 0, "Finale")
-    h.mitte, h.phase, h.bricken = 0, ABGEBEN, {0: 7, 1: 8}
-    h.werte_aus({0: (2, 4, 6), 1: (2, 4, 6)})
-    h.ausfuehren(WUERFELN)
-    assert h.stechen is None and h.bricken == {0: 6, 1: 9}
+    """Phase 2, alle gleich: ein gemeinsames Stechen. Höchste Summe gibt ab, niedrigste bekommt;
+    nur wer dort gleichauf liegt, sticht noch einmal."""
+    def stich(augen, n=3):
+        t = tisch(augen, n=n)
+        h = Haelfte(t, list(range(n)), 0, "Finale")
+        h.mitte, h.phase, h.bricken = 0, ABGEBEN, {i: 5 for i in range(n)}
+        h.werte_aus({i: (2, 4, 6) for i in range(n)})   # 1 Bricken
+        assert h.stechen.worum == "wer abgibt und wer die Bricken bekommt"
+        while h.stechen is not None:
+            h.ausfuehren(WUERFELN)
+        a = h.durchgaenge[0].auswertung
+        return (a.geber, a.empfaenger), [(x.worum, len(x.runden)) for x in a.stechen]
+
+    gemeinsam = "wer abgibt und wer die Bricken bekommt"
+    # zu zweit reicht ein Stechen
+    assert stich([6, 6, 6,  1, 1, 1], n=2) == ((0, 1), [(gemeinsam, 1)])
+    # 15, 10, 8: Sieger und Verlierer klar
+    assert stich([5, 5, 5,  4, 3, 3,  2, 3, 3]) == ((0, 2), [(gemeinsam, 1)])
+    # 15, 15, 8: S0 und S1 stechen noch einmal, wer abgibt; S2 bekommt
+    assert stich([5, 5, 5,  5, 5, 5,  2, 3, 3,  1, 1, 1,  6, 6, 6]) == (
+        (1, 2), [(gemeinsam, 1), ("wer abgibt", 1)])
+    # 15, 8, 8: S1 und S2 stechen noch einmal, wer die Bricken bekommt
+    assert stich([5, 5, 5,  2, 3, 3,  2, 3, 3,  6, 6, 6,  1, 1, 1]) == (
+        (0, 2), [(gemeinsam, 1), ("wer die Bricken bekommt", 1)])
+    # wieder alle gleich (12, 12, 12): alle stechen noch einmal gemeinsam
+    assert stich([4, 4, 4,  6, 5, 1,  3, 4, 5,  5, 5, 5,  4, 3, 3,  2, 3, 3]) == ((0, 2), [(gemeinsam, 2)])
 
 
 # --- Runde ---------------------------------------------------------------------

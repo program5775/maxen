@@ -59,25 +59,25 @@ def test_stammspieler_schiesst_nicht_mit_6_6_oder_6_1(wurf):
     for gegner in range(1, 6):
         for bricken in (0, 2, 8):
             optionen = waehlt(Stammspieler(), wurf, 1, gegner, startspieler=True, bricken=bricken, mal=50)
-            assert all(o.aktion != "stehen" for o in optionen)
+            assert all(o.aktion != "klopfen" for o in optionen)
 
 
 @pytest.mark.parametrize("phase, mitte, bricken, wurf, nr, vorhaben", [
-    # Phase 1, Anfang der Hälfte: Max 5 und Max 6 stehen lassen, Max 2 nie
-    (1, 15, 0, (1, 1, 6), 1, "stehen"), (1, 7, 4, (1, 1, 5), 2, "stehen"), (1, 15, 0, (1, 1, 2), 1, "max"),
+    # Phase 1, Anfang der Hälfte: mit Max 5 und Max 6 klopfen, Max 2 nie
+    (1, 15, 0, (1, 1, 6), 1, "klopfen"), (1, 7, 4, (1, 1, 5), 2, "klopfen"), (1, 15, 0, (1, 1, 2), 1, "max"),
     # Phase 1, Ende der Hälfte: mit jedem Max auf den General
     (1, 3, 0, (1, 1, 6), 1, "max"), (1, 2, 5, (1, 1, 3), 1, "max"), (1, 1, 0, (1, 1, 5), 2, "max"),
-    # Phase 2, viele eigene Bricken: nach Wurf 1 ab Straße stehen
-    (2, 0, 8, (1, 1, 2), 1, "stehen"), (2, 0, 7, (1, 2, 3), 1, "stehen"), (2, 0, 9, (3, 3, 3), 1, "stehen"),
-    # Phase 2, wenige eigene Bricken: Max muss für alle reichen; Straße und Pasch nach Wurf 1 stehen
-    (2, 0, 2, (1, 1, 2), 1, "stehen"), (2, 0, 4, (1, 1, 3), 1, "max"), (2, 0, 4, (1, 1, 4), 2, "stehen"),
-    (2, 0, 6, (1, 1, 5), 2, "max"), (2, 0, 3, (2, 3, 4), 1, "stehen"), (2, 0, 5, (4, 4, 4), 1, "stehen"),
+    # Phase 2, viele eigene Bricken: nach Wurf 1 ab Straße klopfen
+    (2, 0, 8, (1, 1, 2), 1, "klopfen"), (2, 0, 7, (1, 2, 3), 1, "klopfen"), (2, 0, 9, (3, 3, 3), 1, "klopfen"),
+    # Phase 2, wenige eigene Bricken: Max muss für alle reichen; Straße und Pasch nach Wurf 1 klopfen
+    (2, 0, 2, (1, 1, 2), 1, "klopfen"), (2, 0, 4, (1, 1, 3), 1, "max"), (2, 0, 4, (1, 1, 4), 2, "klopfen"),
+    (2, 0, 6, (1, 1, 5), 2, "max"), (2, 0, 3, (2, 3, 4), 1, "klopfen"), (2, 0, 5, (4, 4, 4), 1, "klopfen"),
 ])
 def test_stammspieler_plan_je_phase(phase, mitte, bricken, wurf, nr, vorhaben):
     for gegner in (1, 3, 5):
         optionen = waehlt(Stammspieler(), wurf, nr, gegner, bricken=bricken, phase=phase, mitte=mitte, mal=20)
-        if vorhaben == "stehen":
-            assert {o.aktion for o in optionen} == {"stehen"}
+        if vorhaben == "klopfen":
+            assert {o.aktion for o in optionen} == {"klopfen"}
         else:
             assert {o.neu_fest for o in optionen} == {(1, 1)}
 
@@ -87,7 +87,7 @@ def test_faustregeln_erlauben_immer_eine_option_oder_greifen_nicht():
     emp = Engine(3, 2).empfehlung((1, 1, 4), 3)
     lage = Lage((1, 1, 4), 3, phase=1, mitte=2)
     assert not any(faustregel(b.option, lage) for b in emp.optionen)
-    assert Stammspieler().waehle(emp, random.Random(1), lage).aktion == "stehen"
+    assert Stammspieler().waehle(emp, random.Random(1), lage).aktion == "klopfen"
 
 
 def test_stammspieler_meist_gut():
@@ -128,10 +128,10 @@ def test_anfaenger_dreht_und_macht_groessere_fehler():
 
 
 def test_anfaenger_haelt_sich_in_einem_drittel_an_die_faustregeln():
-    """Startspieler mit 6,6,2 nach Wurf 1 gegen 3: Die Engine will klar stehen bleiben (Schuss),
-    die Faustregel verbietet es. Der Anfänger bleibt also in etwa 2/3 der Fälle stehen."""
-    stehen = sum(o.aktion == "stehen" for o in waehlt(Anfaenger(), (2, 6, 6), 1, 3, startspieler=True, mal=900))
-    assert 0.58 < stehen / 900 < 0.75
+    """Startspieler mit 6,6,2 nach Wurf 1 gegen 3: Die Engine will klar klopfen (Schuss),
+    die Faustregel verbietet es. Der Anfänger klopft also in etwa 2/3 der Fälle."""
+    klopfen = sum(o.aktion == "klopfen" for o in waehlt(Anfaenger(), (2, 6, 6), 1, 3, startspieler=True, mal=900))
+    assert 0.58 < klopfen / 900 < 0.75
 
 
 def test_bot_namen():

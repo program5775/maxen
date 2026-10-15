@@ -15,6 +15,7 @@ Von klein nach groß:
 - **Durchgang:** Jeder beteiligte Spieler ist einmal an der Reihe.
 - **Hälfte:** besteht aus mehreren Durchgängen, bis ein Spieler sie verloren hat.
 - **Runde:** besteht aus mindestens zwei Hälften.
+- **Klopfen:** Wer mit seinem Wurf zufrieden ist und nicht mehr weiterwürfeln will, klopft auf den Tisch. Sein Zug ist damit beendet.
 
 Jeder Spieler hat drei Würfel. Gespielt wird im Uhrzeigersinn.
 
@@ -48,7 +49,7 @@ Gibt es mehrere Generäle, wird der Verlierer nach den normalen Regeln bestimmt.
 
 ### Ablauf einer Runde
 
-Eine Runde hat zwei Hälften. Verliert derselbe Spieler beide, hat er mit einem **glatten Gang** verloren.
+Eine Runde hat mindestens zwei Hälften. Verliert derselbe Spieler beide, hat er mit einem **glatten Gang** verloren.
 Verlieren zwei verschiedene Spieler je eine Hälfte, spielen nur diese beiden ein **Finale**: eine eigene vollständige Hälfte mit 15 Bricken.
 Wer das Finale verliert, hat die Runde verloren.
 
@@ -57,7 +58,7 @@ Spieler im Urlaub steigen in der zweiten Hälfte wieder ein, nach einem glatten 
 ### Wer beginnt?
 
 - Die Sitzordnung wird ausgelost.
-- Der allererste Durchgang der allerersten Runde ist ein **Schuss** (ein einziger Wurf) für alle. Beim Schuss würfeln alle gleichzeitig, es gibt keinen Startspieler.
+- Der allererste Durchgang der allerersten Runde ist immer ein **Schuss** (ein einziger Wurf) für alle. Beim Schuss würfeln alle gleichzeitig, es gibt keinen Startspieler.
 - Danach beginnt immer der Spieler, der im letzten Durchgang Bricken bekommen hat.
 - Die zweite Hälfte und das Finale beginnt der Verlierer der ersten Hälfte.
 - Eine neue Runde beginnt der Verlierer der letzten Runde, ohne Schuss.
@@ -66,12 +67,23 @@ Spieler im Urlaub steigen in der zweiten Hälfte wieder ein, nach einem glatten 
 ### Ablauf eines Durchgangs
 
 1. **Der Startspieler** würfelt höchstens dreimal. Wie oft er würfelt, so oft dürfen die anderen in diesem Durchgang höchstens würfeln.
-   Bleibt er schon nach dem ersten Wurf stehen, haben also alle anderen nur einen Schuss.
-   Der erste und zweite Wurf sind bei allen Spielern offen. Wer nach Wurf 1 oder 2 stehen bleibt, zeigt sein Ergebnis also sofort. Nur der dritte Wurf bleibt verdeckt.
-2. **Die anderen** sind reihum dran und würfeln höchstens so oft wie der Startspieler. Früher stehen bleiben ist erlaubt.
-3. **Aufdecken:** Wenn alle dran waren, decken alle mit verdecktem dritten Wurf auf, zuerst der Startspieler, danach reihum die anderen.
+   Klopft er schon nach dem ersten Wurf, haben also alle anderen nur einen Schuss.
+2. **Die anderen** sind reihum dran und würfeln höchstens so oft wie der Startspieler. Früher klopfen ist erlaubt.
+3. **Aufdecken:** Wenn alle dran waren, decken alle mit verdecktem letzten Wurf auf, zuerst der Startspieler, danach reihum die anderen.
 4. **Bonuswurf:** Wer beim Aufdecken nach seinem dritten Wurf drehen darf (siehe unten), muss sich sofort entscheiden, also bevor die Spieler nach ihm aufdecken.
    Der vierte Wurf bleibt verdeckt. Zum Schluss werden die vierten Würfe der Reihe nach aufgedeckt, beginnend beim Startspieler bzw. beim ersten Spieler, der gedreht hat.
+
+**Offen oder verdeckt?** Der erste Wurf ist immer offen. Verdeckt ist der letzte Wurf, den ein Spieler höchstens machen darf, und der Bonuswurf.
+Alle Würfe davor sind offen; wer früher klopft, zeigt sein Ergebnis also sofort.
+
+| | Startspieler | Andere, Grenze 3 | Andere, Grenze 2 |
+|---|---|---|---|
+| Wurf 1 | offen | offen | offen |
+| Wurf 2 | offen | offen | verdeckt |
+| Wurf 3 | verdeckt | verdeckt | – |
+
+Klopft der Startspieler zum Beispiel nach seinem zweiten Wurf, liegt sein Ergebnis offen; der zweite Wurf der anderen ist dagegen verdeckt.
+Beim Schuss ist der einzige Wurf offen.
 
 ### Liegen lassen und neu würfeln
 
@@ -88,6 +100,8 @@ Sechsen lassen sich in Einsen umwandeln:
 
 Beim Drehen wird also immer mindestens ein Würfel neu geworfen.
 
+Gedreht wird **höchstens einmal pro Zug**. Wer schon gedreht hat und danach wieder zwei 6en würfelt, darf nicht noch einmal drehen, auch nicht in einem späteren Wurf desselben Zugs.
+
 Wann gedreht werden darf, hängt davon ab, wie oft in diesem Durchgang gewürfelt werden darf:
 
 | Erlaubte Würfe | Drehen erlaubt nach | Hinweis |
@@ -96,7 +110,7 @@ Wann gedreht werden darf, hängt davon ab, wie oft in diesem Durchgang gewürfel
 | 2 | nur Wurf 1 | |
 | 1 (Schuss) | nie | |
 
-Drehen beim Aufdecken gibt es nur nach dem dritten Wurf. Wer nach Wurf 1 oder 2 stehen bleibt, konnte schon in seinem Zug drehen.
+Drehen beim Aufdecken gibt es nur nach dem dritten Wurf. Wer früher klopft, konnte schon in seinem Zug drehen.
 
 ### Rangfolge
 
@@ -118,8 +132,9 @@ Jede Straße schlägt jeden normalen Wurf, auch 3, 2, 1 schlägt 6, 6, 5.
 Haben mehrere Spieler das gleiche beste oder schlechteste Ergebnis, wird **gestochen**:
 zuerst unter den Besten, wer abgibt (nur in Phase 2), danach unter den Schlechtesten, wer die Bricken bekommt.
 
-Haben in Phase 2 alle das gleiche Ergebnis, wird zuerst unter allen gestochen, wer abgibt.
-Unter den übrigen wird danach gestochen, wer die Bricken bekommt. Zu zweit gibt also der Gewinner des Stechens an den anderen ab.
+Haben in Phase 2 alle das gleiche Ergebnis, stechen alle gemeinsam. Ein Stechen entscheidet beides: Die höchste Summe gibt ab, die niedrigste bekommt die Bricken.
+Haben mehrere die höchste Summe, stechen nur diese noch einmal, wer abgibt; bei der niedrigsten Summe genauso, wer die Bricken bekommt.
+Zu zweit gibt also der Gewinner des Stechens an den anderen ab.
 
 Beim Stechen würfelt jeder Beteiligte einmal mit allen drei Würfeln. Es zählt nur die **Augensumme**:
 6, 6, 6 (18) ist das höchste, 1, 1, 1 (3) das niedrigste Ergebnis. Bei gleicher Summe wird neu geworfen, zum Beispiel bei 6, 5, 1 gegen 4, 4, 4.
@@ -147,8 +162,8 @@ Die App rät trotzdem, alle drei neu zu würfeln, weil eine Straße relativ nied
 Die App zeigt deshalb immer beides: die Empfehlung und für jede Option die Chance auf „≥ Max“, „≥ Pasch“ und „≥ Straße“.
 „≥“ bedeutet dabei: diese Kombination oder eine bessere.
 
-**Als Startspieler** schaltest du „Ich bin Startspieler“ ein. Die App berücksichtigt dann, dass dein Stehenbleiben die Würfe der anderen begrenzt.
-Ein Beispiel mit zwei Gegnern: Mit 6, 4, 4 nach dem zweiten Wurf rät sie dem Startspieler, stehen zu bleiben (56 % Chance, nicht Letzter zu werden), weil die anderen dann nur zwei Würfe haben.
+**Als Startspieler** schaltest du „Ich bin Startspieler“ ein. Die App berücksichtigt dann, dass dein Klopfen die Würfe der anderen begrenzt.
+Ein Beispiel mit zwei Gegnern: Mit 6, 4, 4 nach dem zweiten Wurf rät sie dem Startspieler zu klopfen (56 % Chance, nicht Letzter zu werden), weil die anderen dann nur zwei Würfe haben.
 Ein normaler Spieler sollte mit demselben Wurf weiterwürfeln.
 
 Noch nicht berücksichtigt sind die Bricken selbst: In Phase 2 lohnt es sich zum Beispiel, Bester zu sein, weil der Beste Bricken abgibt.

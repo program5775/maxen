@@ -4,7 +4,7 @@ Regeln, wie modelliert
 ----------------------
 * Nach jedem Wurf liegen drei Würfel vor dir. Du entscheidest frei, welche du
   liegen lässt. Auch früher herausgelegte Würfel dürfen wieder mitgewürfelt werden.
-  Wer alle drei liegen lässt, bleibt stehen. Wer würfelt, muss mindestens einen
+  Wer alle drei liegen lässt, klopft. Wer würfelt, muss mindestens einen
   Würfel werfen.
 * Drehen: zwei 6en -> eine 1 (der dritte Würfel darf liegen bleiben oder
   mitgewürfelt werden), drei 6en -> zwei 1en (ein Würfel frei).
@@ -13,6 +13,8 @@ Regeln, wie modelliert
       4. Wurf. Nach dem 4. Wurf ist Schluss.
     - 2 Würfe erlaubt: nur nach Wurf 1.
     - 1 Wurf (Schuss): gar nicht.
+  Gedreht wird höchstens einmal pro Zug: Wer schon gedreht hat, darf auch bei
+  erneuten 6,6 nicht noch einmal drehen.
 
 Alle Wahrscheinlichkeiten werden exakt über alle Würfelausgänge berechnet
 (Dynamische Programmierung, keine Simulation).
@@ -62,8 +64,10 @@ def darf_wuerfeln(wurf_nr: int, wuerfe: int) -> bool:
     return wurf_nr < wuerfe
 
 
-def darf_drehen(wurf_nr: int, wuerfe: int) -> bool:
-    """Darf nach Wurf `wurf_nr` gedreht werden?"""
+def darf_drehen(wurf_nr: int, wuerfe: int, gedreht: bool = False) -> bool:
+    """Darf nach Wurf `wurf_nr` gedreht werden? `gedreht`: in diesem Zug schon gedreht."""
+    if gedreht:
+        return False                 # höchstens einmal pro Zug
     if wuerfe == 3:
         return wurf_nr <= 3          # nach Wurf 3 -> Bonuswurf 4
     if wuerfe == 2:
@@ -73,7 +77,7 @@ def darf_drehen(wurf_nr: int, wuerfe: int) -> bool:
 
 @dataclass(frozen=True)
 class Option:
-    aktion: str                 # "stehen", "legen", "drehen"
+    aktion: str                 # "klopfen", "legen", "drehen"
     neu_fest: tuple[int, ...]   # Würfel, die danach liegen
     text: str
 
@@ -93,11 +97,11 @@ def optionen(wurf, wuerfeln: bool, drehen: bool) -> list[Option]:
         raise ValueError("Ein Wurf hat drei Würfel")
 
     gefunden: dict[tuple[int, ...], Option] = {
-        wurf: Option("stehen", wurf, f"Stehen lassen ({name(bewerte(wurf))})")
+        wurf: Option("klopfen", wurf, f"Klopfen ({name(bewerte(wurf))})")
     }
 
     if wuerfeln:
-        for maske in range(7):  # alle Teilmengen außer „alle drei" (= stehen)
+        for maske in range(7):  # alle Teilmengen außer „alle drei" (= klopfen)
             behalten = tuple(sorted(wurf[i] for i in range(3) if maske >> i & 1))
             if behalten in gefunden:
                 continue
@@ -171,8 +175,8 @@ class Engine:
     """Optimale Strategie für einen Durchgang mit `wuerfe` erlaubten Würfen.
 
     startspieler=True: Der Startspieler darf bis zu dreimal würfeln und legt
-    durch sein Stehenbleiben die Wurfgrenze der anderen fest. Bleibt er nach
-    Wurf k stehen, wird sein Ergebnis gegen die Gegnerverteilung von
+    durch sein Klopfen die Wurfgrenze der anderen fest. Klopft er nach
+    Wurf k, wird sein Ergebnis gegen die Gegnerverteilung von
     `Engine(k)` bewertet (nach dem Bonuswurf gilt Grenze 3).
     """
 
@@ -211,31 +215,32 @@ class Engine:
         self._cache: dict = {}
 
     def endnutzen(self, wurf_nr: int) -> dict[Schluessel, float]:
-        """Nutzen je Endergebnis, wenn nach Wurf Nr. `wurf_nr` stehen geblieben wird."""
+        """Nutzen je Endergebnis, wenn nach Wurf Nr. `wurf_nr` geklopft wird."""
         if self.startspieler:
             return self._nutzen_je_grenze[min(wurf_nr, 3)]
         return self.nutzen
 
     # --- Dynamische Programmierung ------------------------------------------
-    def zustand(self, fest: tuple[int, ...], wurf_nr: int) -> tuple[float, Verteilung]:
-        """Wert und Endverteilung, wenn `fest` liegt und gleich Wurf Nr. `wurf_nr` folgt."""
-        key = (fest, wurf_nr)
+    def zustand(self, fest: tuple[int, ...], wurf_nr: int, gedreht: bool = False) -> tuple[float, Verteilung]:
+        """Wert und Endverteilung, wenn `fest` liegt und gleich Wurf Nr. `wurf_nr` folgt.
+        `gedreht`: in diesem Zug wurde schon gedreht."""
+        key = (fest, wurf_nr, gedreht)
         if key in self._cache:
             return self._cache[key]
         wert = 0.0
         vert: Verteilung = defaultdict(float)
         for ergebnis, p in wurf_verteilung(3 - len(fest)):
-            beste = self.bewerte_optionen(fest + ergebnis, wurf_nr)[0]
+            beste = self.bewerte_optionen(fest + ergebnis, wurf_nr, gedreht)[0]
             wert += p * beste.nutzen
             for s, q in beste.verteilung.items():
                 vert[s] += p * q
         self._cache[key] = (wert, dict(vert))
         return self._cache[key]
 
-    def bewerte_optionen(self, wurf, wurf_nr: int) -> list[Bewertung]:
+    def bewerte_optionen(self, wurf, wurf_nr: int, gedreht: bool = False) -> list[Bewertung]:
         """Alle Optionen nach Wurf Nr. `wurf_nr`, beste zuerst."""
         wuerfeln = darf_wuerfeln(wurf_nr, self.wuerfe)
-        drehen = wurf_nr <= self.wuerfe and darf_drehen(wurf_nr, self.wuerfe)
+        drehen = wurf_nr <= self.wuerfe and darf_drehen(wurf_nr, self.wuerfe, gedreht)
         endnutzen = self.endnutzen(wurf_nr)
         bew = []
         for o in optionen(wurf, wuerfeln, drehen):
@@ -243,18 +248,19 @@ class Engine:
                 s = bewerte(o.neu_fest)
                 bew.append(Bewertung(o, endnutzen[s], {s: 1.0}))
             else:
-                bew.append(Bewertung(o, *self.zustand(o.neu_fest, wurf_nr + 1)))
+                bew.append(Bewertung(o, *self.zustand(o.neu_fest, wurf_nr + 1, gedreht or o.aktion == "drehen")))
         # Bei Gleichstand: die Option bevorzugen, die mehr liegen lässt
         bew.sort(key=lambda b: (-b.nutzen, -len(b.option.neu_fest)))
         return bew
 
     # --- Öffentliche API ----------------------------------------------------
-    def empfehlung(self, wurf, wurf_nr: int = 1) -> "Empfehlung":
-        """Empfehlung nach Wurf Nr. `wurf_nr` (1-basiert; 4 = Bonuswurf nach Drehen)."""
+    def empfehlung(self, wurf, wurf_nr: int = 1, gedreht: bool = False) -> "Empfehlung":
+        """Empfehlung nach Wurf Nr. `wurf_nr` (1-basiert; 4 = Bonuswurf nach Drehen).
+        `gedreht`: in diesem Zug wurde schon gedreht (dann kein zweites Mal)."""
         max_nr = 4 if self.wuerfe == 3 else self.wuerfe
         if not 1 <= wurf_nr <= max_nr:
             raise ValueError(f"wurf_nr muss zwischen 1 und {max_nr} liegen")
-        return Empfehlung(self.bewerte_optionen(tuple(wurf), wurf_nr))
+        return Empfehlung(self.bewerte_optionen(tuple(wurf), wurf_nr, gedreht))
 
     def startwert(self) -> Bewertung:
         """Chancen vor dem ersten Wurf."""
@@ -271,7 +277,7 @@ class Empfehlung:
 
     def begruendung(self) -> str:
         b = self.beste
-        if b.option.aktion == "stehen":
+        if b.option.aktion == "klopfen":
             txt = f"{b.option.text}. Chance, nicht zu verlieren: ~{b.nutzen * 100:.0f}%."
         else:
             ziel = next((k for k in (GENERAL, MAX, PASCH, STRASSE) if b.mindestens(k) >= 0.25), STRASSE)

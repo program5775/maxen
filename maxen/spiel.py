@@ -16,8 +16,9 @@ Bedienung (UI oder Test):
 Meist ist genau ein Spieler dran. Beim Schuss und beim Stechen würfeln alle
 Beteiligten gleichzeitig, `s.offen` enthält dann mehrere Spieler.
 
-Alles, was am Tisch öffentlich passiert, steht in `s.protokoll`. Wurf 1 und 2 sind
-offen, Wurf 3 und der Bonuswurf tauchen erst beim Aufdecken auf.
+Alles, was am Tisch öffentlich passiert, steht in `s.protokoll`. Wurf 1 ist immer
+offen, ebenso jeder Wurf vor dem letzten erlaubten. Der letzte erlaubte Wurf (ab Wurf 2;
+beim Startspieler Wurf 3) und der Bonuswurf tauchen erst beim Aufdecken auf.
 
 Muss ein Mensch stechen, wartet die Auswertung des Durchgangs auf ihn:
 `s.stechen` ist dann gesetzt, `s.am_zug` ist None und `s.optionen(i)` ist [WUERFELN].
@@ -46,13 +47,14 @@ VERTEILEN, ABGEBEN = 1, 2            # Phasen einer Hälfte
 # Stand eines Zugs
 BEREIT = "bereit"                    # noch nicht gewürfelt
 AM_WUERFELN = "am_wuerfeln"          # nach einem Wurf, weitere Würfe möglich
-VERDECKT = "verdeckt"                # Zug nach Wurf 3 vorbei, Ergebnis verdeckt bis zum Aufdecken
-FERTIG = "fertig"                    # Endergebnis steht fest (nach Wurf 1 oder 2 offen)
+VERDECKT = "verdeckt"                # Zug nach dem letzten erlaubten Wurf vorbei, Ergebnis verdeckt bis zum Aufdecken
+FERTIG = "fertig"                    # Endergebnis steht fest
 
 # Stand eines Durchgangs
 ZUEGE, AUFDECKEN = "zuege", "aufdecken"
 
 WUERFELN = Option("legen", (), "Würfeln")   # der erste Wurf eines Zugs
+WIE_OFT = {1: "einmal", 2: "zweimal", 3: "dreimal"}
 
 
 def bricken(schluessel: Schluessel) -> int | None:
@@ -113,18 +115,24 @@ def aufzaehlung(namen) -> str:
 
 @dataclass
 class Stechen:
-    """Stechen nach Augensumme. hoch=True: die höchste Summe gewinnt, sonst verliert die niedrigste.
+    """Stechen nach Augensumme. hoch=True: die höchste Summe gewinnt, False: die niedrigste verliert.
     In jeder Würfelrunde würfelt jeder Kandidat selbst, in beliebiger Reihenfolge. Haben alle
-    gewürfelt, ist die Runde abgeschlossen; bei gleicher Summe werfen nur die Gleichstehenden neu."""
+    gewürfelt, ist die Runde abgeschlossen; bei gleicher Summe werfen nur die Gleichstehenden neu.
+
+    hoch=None (Phase 2, alle haben dasselbe Ergebnis): ein gemeinsames Stechen für beides. Es ist
+    vorbei, sobald nicht mehr alle dieselbe Summe haben; `oben` und `unten` sind dann die Spieler mit
+    der höchsten und der niedrigsten Summe. Stehen dort mehrere, stechen nur diese noch einmal."""
     kandidaten: list[int]
-    hoch: bool
+    hoch: bool | None
     worum: str                       # z. B. "wer die Bricken bekommt"
     runden: list[dict[int, Wurf]] = field(default_factory=list)   # abgeschlossene Würfelrunden
     aktuell: dict[int, Wurf] = field(default_factory=dict)        # laufende Würfelrunde
+    oben: list[int] = field(default_factory=list)                 # nur bei hoch=None
+    unten: list[int] = field(default_factory=list)
 
     @property
     def entschieden(self) -> bool:
-        return len(self.kandidaten) == 1
+        return bool(self.oben) if self.hoch is None else len(self.kandidaten) == 1
 
     @property
     def offen(self) -> list[int]:
@@ -143,9 +151,15 @@ class Stechen:
         self.runden.append(wuerfe)
         self.aktuell = {}
         summen = {s: sum(w) for s, w in wuerfe.items()}
-        ziel = max(summen.values()) if self.hoch else min(summen.values())
         tisch.melde("stechen", f"Stechen, {self.worum}: " + "; ".join(
             f"{tisch.name(s)} {zeige(w)} = {summen[s]}" for s, w in wuerfe.items()))
+        hoechste, niedrigste = max(summen.values()), min(summen.values())
+        if self.hoch is None:
+            if hoechste != niedrigste:
+                self.oben = [s for s in self.kandidaten if summen[s] == hoechste]
+                self.unten = [s for s in self.kandidaten if summen[s] == niedrigste]
+            return
+        ziel = hoechste if self.hoch else niedrigste
         self.kandidaten = [s for s in self.kandidaten if summen[s] == ziel]
 
 
@@ -183,16 +197,21 @@ class Zug:
     """Der Zug eines Spielers in einem Durchgang."""
     spieler: int
     grenze: int | None               # erlaubte Würfe; bei den anderen erst bekannt, wenn der Startspieler fertig ist
-    bestimmt_grenze: bool = False    # Startspieler, der durch sein Stehenbleiben die Grenze festlegt
+    bestimmt_grenze: bool = False    # Startspieler, der durch sein Klopfen die Grenze festlegt
     wurf_nr: int = 0                 # 4 = Bonuswurf nach Drehen beim Aufdecken
     wurf: Wurf | None = None
     stand: str = BEREIT
-    aufgedeckt: bool = False         # aktueller Wurf ist für alle sichtbar (Wurf 1 und 2 immer)
+    aufgedeckt: bool = False         # aktueller Wurf ist für alle sichtbar (Wurf 1 und alle vor dem letzten erlaubten)
     schritte: list[Schritt] = field(default_factory=list)   # alle Würfe des Zugs
 
     @property
     def verlauf(self) -> list[Wurf]:
         return [sch.wurf for sch in self.schritte]
+
+    @property
+    def gedreht(self) -> bool:
+        """Schon gedreht? Gedreht wird höchstens einmal pro Zug."""
+        return any(sch.gedreht for sch in self.schritte)
 
     @property
     def sichtbar(self) -> int:
@@ -204,30 +223,31 @@ class Zug:
             return [WUERFELN]
         if self.stand == AM_WUERFELN:
             return optionen(self.wurf, darf_wuerfeln(self.wurf_nr, self.grenze),
-                            darf_drehen(self.wurf_nr, self.grenze))
+                            darf_drehen(self.wurf_nr, self.grenze, self.gedreht))
         if self.stand == VERDECKT:
             # Beim Aufdecken darf nur nach Wurf 3 gedreht werden
-            return optionen(self.wurf, False, self.wurf_nr == 3 and darf_drehen(3, self.grenze))
+            return optionen(self.wurf, False, self.wurf_nr == 3 and darf_drehen(3, self.grenze, self.gedreht))
         return []
 
     def ausfuehren(self, option: Option, tisch: Tisch) -> None:
         """Übernimmt `option.neu_fest` und würfelt `option.neu_wuerfeln` Würfel neu."""
         if option not in self.optionen():
             raise ValueError(f"Nicht erlaubt: {option.text}")
-        if option.aktion == "stehen":        # im Zug nur nach Wurf 1 oder 2 möglich, also offen
+        if option.aktion == "klopfen":        # im Zug nur nach Wurf 1 oder 2 möglich, also offen
             self.stand = FERTIG
             return
         schritt = Schritt(option.neu_fest, tisch.wuerfle(option.neu_wuerfeln), option.aktion == "drehen")
         self.schritte.append(schritt)
         self.wurf = schritt.wurf
         self.wurf_nr += 1
-        self.aufgedeckt = self.wurf_nr <= 2  # Wurf 3 und der Bonuswurf bleiben verdeckt
+        # Der letzte erlaubte Wurf (ab Wurf 2) und der Bonuswurf bleiben verdeckt
+        self.aufgedeckt = self.wurf_nr == 1 or self.wurf_nr < self.grenze
         if self.stand == VERDECKT:           # Bonuswurf nach dem Aufdecken
             self.stand = FERTIG
         elif self.wurf_nr < self.grenze:
             self.stand = AM_WUERFELN
         else:
-            self.stand = VERDECKT if self.wurf_nr == 3 else FERTIG
+            self.stand = FERTIG if self.aufgedeckt else VERDECKT
 
 
 class Durchgang:
@@ -298,17 +318,17 @@ class Durchgang:
                 t.melde("aufdecken", f"{n} dreht ({option.text}) und würfelt den Bonuswurf verdeckt.", zug.spieler)
             else:
                 t.melde("aufdecken", f"{n} dreht nicht.", zug.spieler)
-        elif option.aktion == "stehen":
-            t.melde("zug", f"{n} bleibt nach Wurf {nr} stehen: {zeige(zug.wurf)} ({wurf_name(zug.wurf)}).",
+        elif option.aktion == "klopfen":
+            t.melde("zug", f"{n} klopft nach Wurf {nr}: {zeige(zug.wurf)} ({wurf_name(zug.wurf)}).",
                     zug.spieler)
         else:
             if vorher is not None:
                 t.melde("zug", f"{n}: {zeige(vorher)} – {option.text}.", zug.spieler)
             if zug.stand == VERDECKT:
-                t.melde("zug", f"{n} hat dreimal gewürfelt, das Ergebnis ist verdeckt.", zug.spieler)
+                t.melde("zug", f"{n} hat {WIE_OFT[zug.wurf_nr]} gewürfelt, das Ergebnis ist verdeckt.",
+                        zug.spieler)
             elif zug.stand == FERTIG:
-                woerter = {1: "einmal", 2: "zweimal"}
-                t.melde("zug", f"{n} hat {woerter[zug.wurf_nr]} gewürfelt: {zeige(zug.wurf)} "
+                t.melde("zug", f"{n} hat {WIE_OFT[zug.wurf_nr]} gewürfelt: {zeige(zug.wurf)} "
                                f"({wurf_name(zug.wurf)}).", zug.spieler)
         self._weiter()
 
@@ -400,8 +420,8 @@ class Haelfte:
         if self.durchgang.fertig:
             self.werte_aus(self.durchgang.ergebnisse)
 
-    def _steche(self, kandidaten, hoch: bool, worum: str) -> int | None:
-        """Ergebnis des Stechens; None, solange ein Mensch noch würfeln muss.
+    def _steche(self, kandidaten, hoch: bool | None, worum: str) -> Stechen | None:
+        """Das entschiedene Stechen; None, solange ein Mensch noch würfeln muss.
         Bots würfeln sofort, ohne Menschen unter den Gleichstehenden wird gleich weitergestochen."""
         if worum not in self._gestochen:
             if self.stechen is None:
@@ -417,7 +437,12 @@ class Haelfte:
                     self.stechen.wuerfeln(self.tisch, s)
             self._gestochen[worum] = self.stechen
             self.stechen = None
-        return self._gestochen[worum].kandidaten[0]
+        return self._gestochen[worum]
+
+    def _verlierer(self, kandidaten, worum: str = "wer die Bricken bekommt") -> int | None:
+        """Wer von `kandidaten` die niedrigste Summe hat (gleich der einzige Kandidat, wenn es nur einen gibt)."""
+        st = self._steche(kandidaten, False, worum)
+        return None if st is None else st.kandidaten[0]
 
     def _ausgewertet(self, bestes: Schluessel, empfaenger: int, **kw) -> None:
         d = self.durchgang
@@ -439,7 +464,7 @@ class Haelfte:
         anzahl = bricken(hoch)
 
         if anzahl is None:
-            verlierer = self._steche(schlechteste, hoch=False, worum="wer die Hälfte verliert")
+            verlierer = self._verlierer(schlechteste, "wer die Hälfte verliert")
             if verlierer is None:
                 return
             t.melde("bricken", f"General! {t.name(verlierer)} hat das schlechteste Ergebnis.", verlierer)
@@ -448,7 +473,7 @@ class Haelfte:
             return
 
         if self.phase == VERTEILEN:
-            empfaenger = self._steche(schlechteste, hoch=False, worum="wer die Bricken bekommt")
+            empfaenger = self._verlierer(schlechteste)
             if empfaenger is None:
                 return
             n = min(anzahl, self.mitte)
@@ -467,11 +492,16 @@ class Haelfte:
                 t.melde("phase", "Die Mitte ist leer. Phase 2: Der Beste gibt Bricken an den Schlechtesten ab."
                         + (f" Urlaub: {', '.join(urlauber)}." if urlauber else ""))
         else:
-            geber = self._steche(beste, hoch=True, worum="wer abgibt")
-            if geber is None:
+            if len(beste) == len(schl):      # alle gleich: ein gemeinsames Stechen für beides
+                gemeinsam = self._steche(beste, None, "wer abgibt und wer die Bricken bekommt")
+                if gemeinsam is None:
+                    return
+                beste, schlechteste = gemeinsam.oben, gemeinsam.unten
+            st = self._steche(beste, True, "wer abgibt")
+            if st is None:
                 return
-            empfaenger = self._steche([s for s in schlechteste if s != geber], hoch=False,
-                                      worum="wer die Bricken bekommt")
+            geber = st.kandidaten[0]
+            empfaenger = self._verlierer([s for s in schlechteste if s != geber])
             if empfaenger is None:
                 return
             n = min(anzahl, self.bricken[geber])
@@ -667,7 +697,7 @@ class Sitzung(Tisch):
         if zug is None or zug.wurf is None:
             raise ValueError("Keine Entscheidung nach einem Wurf offen")
         e = self.engine(zug.grenze, self.durchgang.gegner, zug.bestimmt_grenze)
-        return e.empfehlung(zug.wurf, zug.wurf_nr)
+        return e.empfehlung(zug.wurf, zug.wurf_nr, zug.gedreht)
 
     def bots_ziehen(self) -> None:
         """Bots ziehen, bis nur noch Menschen entscheiden oder stechen müssen oder der Durchgang endet."""

@@ -342,7 +342,8 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
                 st.subheader("Stechen")
                 st.markdown(f"Gleichstand mit {andere}. Gestochen wird, {stechen.worum}.")
                 st.caption("Jeder würfelt einmal mit allen drei Würfeln, es zählt die Augensumme. "
-                           + ("Die höchste Summe gewinnt." if stechen.hoch else "Die niedrigste Summe verliert.")
+                           + {True: "Die höchste Summe gewinnt.", False: "Die niedrigste Summe verliert.",
+                              None: "Die höchste Summe gibt ab, die niedrigste bekommt die Bricken."}[stechen.hoch]
                            + " Bei gleicher Summe wird neu geworfen.")
                 for wuerfe in stechen.runden:
                     st.caption("Gleiche Summe: " + ", ".join(f"{escape(s.name(i))} {wurf_html(w)}"
@@ -388,7 +389,7 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
                 def mit_chance(text: str, o) -> str:
                     return f"{text} · {prozent(nutzen[o])}" if o in nutzen else text
 
-                stehen = next(o for o in opts if o.aktion == "stehen")
+                klopfen = next(o for o in opts if o.aktion == "klopfen")
                 if zug.stand == AM_WUERFELN:
                     st.caption(f"Wurf {zug.wurf_nr} (Startspieler, bis zu 3)" if zug.bestimmt_grenze
                                else f"Wurf {zug.wurf_nr} von {zug.grenze}")
@@ -411,7 +412,7 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
                 if emp is not None:
                     st.success(emp.begruendung(), icon="👉")
                     if zug.bestimmt_grenze and zug.stand == AM_WUERFELN and zug.wurf_nr < 3:
-                        st.caption(f"Bleibst du jetzt stehen, dürfen die anderen höchstens {zug.wurf_nr}-mal würfeln.")
+                        st.caption(f"Klopfst du jetzt, dürfen die anderen höchstens {zug.wurf_nr}-mal würfeln.")
 
                 if zug.stand == AM_WUERFELN:
                     neu = 3 - len(fest)
@@ -420,12 +421,12 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
                     st.button(mit_chance(text, legen), key="spiel_wuerfeln", type="primary" if neu else "secondary",
                               width="stretch", icon=":material/casino:", disabled=legen is None,
                               on_click=auswahl_ausfuehren, args=(raum, ich_name, marke, key, werte))
-                    st.button(mit_chance(f"Klopfen ({wurf_name(zug.wurf)})", stehen), key="spiel_stehen",
+                    st.button(mit_chance(f"Klopfen ({wurf_name(zug.wurf)})", klopfen), key="spiel_klopfen",
                               type="secondary" if neu else "primary", width="stretch", icon=":material/front_hand:",
-                              on_click=raum.ausfuehren, args=(ich_name, marke, stehen))
+                              on_click=raum.ausfuehren, args=(ich_name, marke, klopfen))
                 else:
-                    st.button(mit_chance("Nicht drehen", stehen), key="spiel_stehen", type="primary",
-                              width="stretch", on_click=raum.ausfuehren, args=(ich_name, marke, stehen))
+                    st.button(mit_chance("Nicht drehen", klopfen), key="spiel_klopfen", type="primary",
+                              width="stretch", on_click=raum.ausfuehren, args=(ich_name, marke, klopfen))
                 for o in opts:
                     if o.aktion == "drehen":
                         st.button(mit_chance(dreh_text(o), o), key=f"opt_{o.aktion}_{o.neu_fest}", width="stretch",

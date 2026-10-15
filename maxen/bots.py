@@ -13,8 +13,8 @@ from .engine import Empfehlung, Option
 from .regeln import MAX, NORMAL, PASCH, STRASSE, Wurf, bewerte
 
 MITTE_GENERAL = 3   # Phase 1: liegen höchstens so viele Bricken in der Mitte, geht man mit Max auf den General
-MITTE_VIEL = 6      # Phase 1: liegen mehr in der Mitte, bleibt man mit Max 5 oder Max 6 stehen
-EIGENE_VIEL = 6     # Phase 2: wer mehr eigene Bricken hat, bleibt nach Wurf 1 ab Straße stehen
+MITTE_VIEL = 6      # Phase 1: liegen mehr in der Mitte, klopft man mit Max 5 oder Max 6
+EIGENE_VIEL = 6     # Phase 2: wer mehr eigene Bricken hat, klopft nach Wurf 1 ab Straße
 
 
 @dataclass(frozen=True)
@@ -22,24 +22,24 @@ class Lage:
     """Was ein Bot außer der Empfehlung über seinen Zug weiß."""
     wurf: Wurf
     wurf_nr: int
-    startspieler: bool = False   # legt durch sein Stehenbleiben die Wurfgrenze fest
+    startspieler: bool = False   # legt durch sein Klopfen die Wurfgrenze fest
     bricken: int = 0             # eigene Bricken in der laufenden Hälfte
     phase: int = 1               # 1 = Verteilen, 2 = Abgeben
     mitte: int = 15              # Bricken in der Mitte
 
 
 def plan(lage: Lage) -> str | None:
-    """Was ein Stammspieler mit einem guten Wurf vorhat: "stehen", "max" (1,1 liegen lassen, für einen
+    """Was ein Stammspieler mit einem guten Wurf vorhat: "klopfen", "max" (1,1 liegen lassen, für einen
     höheren Max oder den General) oder None (keine Faustregel, die Engine entscheidet).
 
     Phase 1 (Verteilen):
     * Max 2 hält man nie, man würfelt auf einen höheren Max.
     * Ende der Hälfte (höchstens MITTE_GENERAL in der Mitte): mit jedem Max auf den General.
-    * Anfang der Hälfte (mehr als MITTE_VIEL in der Mitte): mit Max 5 oder Max 6 stehen bleiben.
+    * Anfang der Hälfte (mehr als MITTE_VIEL in der Mitte): mit Max 5 oder Max 6 klopfen.
     Phase 2 (Abgeben), man will gewinnen und abgeben:
-    * Mehr als EIGENE_VIEL eigene Bricken: nach Wurf 1 ab Straße stehen bleiben, auch mit Max 2.
-    * Sonst mit Max stehen bleiben, wenn er für alle eigenen Bricken reicht, sonst auf einen höheren Max;
-      mit Straße oder Pasch nach Wurf 1 stehen bleiben.
+    * Mehr als EIGENE_VIEL eigene Bricken: nach Wurf 1 ab Straße klopfen, auch mit Max 2.
+    * Sonst mit Max klopfen, wenn er für alle eigenen Bricken reicht, sonst auf einen höheren Max;
+      mit Straße oder Pasch nach Wurf 1 klopfen.
     """
     kategorie, wert = bewerte(lage.wurf)
     if lage.phase == 1:
@@ -47,31 +47,31 @@ def plan(lage: Lage) -> str | None:
             return None
         if wert == 2 or lage.mitte <= MITTE_GENERAL:
             return "max"
-        return "stehen" if lage.mitte > MITTE_VIEL and wert >= 5 else None
+        return "klopfen" if lage.mitte > MITTE_VIEL and wert >= 5 else None
     if lage.bricken > EIGENE_VIEL:
-        return "stehen" if lage.wurf_nr == 1 and STRASSE <= kategorie <= MAX else None
+        return "klopfen" if lage.wurf_nr == 1 and STRASSE <= kategorie <= MAX else None
     if kategorie == MAX:
-        return "stehen" if wert >= lage.bricken else "max"
-    return "stehen" if lage.wurf_nr == 1 and kategorie in (STRASSE, PASCH) else None
+        return "klopfen" if wert >= lage.bricken else "max"
+    return "klopfen" if lage.wurf_nr == 1 and kategorie in (STRASSE, PASCH) else None
 
 
 def faustregel(option: Option, lage: Lage) -> bool:
     """Hält `option` die Faustregeln der Stammspieler ein?
 
-    * Mit Max, Pasch oder Straße je nach Phase und Bricken stehen bleiben oder auf einen höheren Max
+    * Mit Max, Pasch oder Straße je nach Phase und Bricken klopfen oder auf einen höheren Max
       gehen (siehe `plan`).
-    * Als Startspieler nach Wurf 1 mit 6,6 oder 6,1 nicht stehen bleiben (kein Schuss).
+    * Als Startspieler nach Wurf 1 mit 6,6 oder 6,1 nicht klopfen (kein Schuss).
     * Wer weiterwürfelt, lässt alle 1en liegen und neben einer einzelnen 1 auch eine 6.
       Drehen ist davon ausgenommen.
     """
     wurf, fest = lage.wurf, option.neu_fest
     kategorie = bewerte(wurf)[0]
     vorhaben = plan(lage)
-    if vorhaben == "stehen":
-        return option.aktion == "stehen"
+    if vorhaben == "klopfen":
+        return option.aktion == "klopfen"
     if vorhaben == "max":
         return fest == (1, 1)
-    if option.aktion == "stehen":
+    if option.aktion == "klopfen":
         sechs_und = wurf.count(6) >= 2 or (6 in wurf and 1 in wurf)
         return not (lage.startspieler and lage.wurf_nr == 1 and kategorie == NORMAL and sechs_und)
     if option.aktion == "drehen":

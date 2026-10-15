@@ -49,19 +49,19 @@ def test_assistent_empfehlung_und_ablauf():
     at.button(key=f"opt_{emp.beste.option.aktion}_{emp.beste.option.neu_fest}").click().run()
     assert at.subheader[0].value == "Wurf 2 von 3"
 
-    # 6,6,6 -> zu 1,1 drehen, dann Max 6 stehen lassen
+    # 6,6,6 -> zu 1,1 drehen, dann mit Max 6 klopfen
     wuerfle(at, 6, 6, 6)
     at.button(key="opt_drehen_(1, 1)").click().run()
     assert at.session_state.fest == (1, 1)
     wuerfle(at, 6)
-    at.button(key="opt_stehen_(1, 1, 6)").click().run()
+    at.button(key="opt_klopfen_(1, 1, 6)").click().run()
     assert at.subheader[0].value == "Durchgang beendet"
     assert at.metric[0].value == "Max 6"
 
     # Zurück und neuer Durchgang
     at.button[1].click().run()
     assert at.session_state.ende is None and at.session_state.wurf_nr == 3
-    at.button(key="opt_stehen_(1, 1, 6)").click().run()
+    at.button(key="opt_klopfen_(1, 1, 6)").click().run()
     at.button[0].click().run()
     assert at.subheader[0].value == "Wurf 1 von 3" and at.session_state.verlauf == []
 
@@ -111,7 +111,7 @@ def tabelle(at: AppTest) -> str:
 
 def schritt(at: AppTest) -> bool:
     """Neu zeichnen (wie das Polling) und, falls möglich, einen Knopf drücken:
-    Würfeln (mit den vorbelegten Würfeln), Ergebnis bestätigen, Drehen oder Stehen."""
+    Würfeln (mit den vorbelegten Würfeln), Ergebnis bestätigen, Drehen oder Klopfen."""
     at.run()
     assert not at.exception
     keys = [b.key for b in at.button if not b.disabled]
@@ -121,8 +121,8 @@ def schritt(at: AppTest) -> bool:
         at.button(key="spiel_bestaetigen").click()
     elif any(k and k.startswith("opt_") for k in keys):
         next(b for b in at.button if b.key and b.key.startswith("opt_")).click()
-    elif "spiel_stehen" in keys:
-        at.button(key="spiel_stehen").click()
+    elif "spiel_klopfen" in keys:
+        at.button(key="spiel_klopfen").click()
     else:
         return False
     at.run()
@@ -188,7 +188,7 @@ def test_spiel_ohne_tipp_verraet_nichts():
     spiele(at, lambda s: r.pause is None and s.am_zug is not None and s.am_zug.spieler == 0
            and s.am_zug.wurf is not None)
     at.run()
-    knoepfe = [b for b in at.button if b.key in ("spiel_wuerfeln", "spiel_stehen") or b.key.startswith("opt_")]
+    knoepfe = [b for b in at.button if b.key in ("spiel_wuerfeln", "spiel_klopfen") or b.key.startswith("opt_")]
     assert knoepfe and all("%" not in b.label for b in knoepfe) and not at.success
 
 
@@ -214,11 +214,11 @@ def test_spiel_wuerfel_markieren():
     at.button(key="spiel_wuerfeln").click().run()
     assert not at.exception and zug.wurf_nr == nr + 1
     assert zug.schritte[-1].fest == tuple(sorted((werte[0], werte[2])))
-    # alle drei markiert: nur noch Stehen bleiben
+    # alle drei markiert: nur noch Klopfen
     if zug.stand == AM_WUERFELN:
         at.pills[0].set_value([0, 1, 2]).run()
         assert at.button(key="spiel_wuerfeln").disabled
-        at.button(key="spiel_stehen").click().run()
+        at.button(key="spiel_klopfen").click().run()
         assert not at.exception and zug.stand == FERTIG
 
 

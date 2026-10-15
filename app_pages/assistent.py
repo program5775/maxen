@@ -2,7 +2,7 @@
 
 Ablauf eines Durchgangs: Würfe eingeben -> Empfehlung + Optionstabelle -> Option
 wählen -> nächster Wurf (liegen gelassene Würfel sind vorbelegt) -> … bis
-„stehen“. Die App wird am Handy benutzt, daher große Touch-Ziele.
+„klopfen“. Die App wird am Handy benutzt, daher große Touch-Ziele.
 """
 import streamlit as st
 
@@ -16,7 +16,7 @@ ss.setdefault("durchgang", 0)     # Teil der Widget-Keys, damit ein neuer Durchg
 ss.setdefault("wurf_nr", 1)
 ss.setdefault("fest", ())         # Würfel, die aus dem letzten Wurf liegen
 ss.setdefault("verlauf", [])
-ss.setdefault("ende", None)       # Endwurf, sobald „stehen“ gewählt wurde
+ss.setdefault("ende", None)       # Endwurf, sobald „klopfen“ gewählt wurde
 ss.setdefault("cfg_wuerfe", 3)
 ss.setdefault("cfg_gegner", 1)
 ss.setdefault("cfg_start", False)
@@ -45,8 +45,9 @@ def wuerfel_key(i: int) -> str:
 
 
 def waehle(option, wurf, neu) -> None:
-    ss.verlauf.append(dict(wurf_nr=ss.wurf_nr, fest=ss.fest, neu=neu, wurf=wurf, text=option.text))
-    if option.aktion == "stehen":
+    ss.verlauf.append(dict(wurf_nr=ss.wurf_nr, fest=ss.fest, neu=neu, wurf=wurf, text=option.text,
+                           gedreht=option.aktion == "drehen"))
+    if option.aktion == "klopfen":
         ss.ende = wurf
     else:
         ss.fest = option.neu_fest
@@ -125,17 +126,18 @@ if None in neu:
 
 neu = tuple(neu)
 wurf = tuple(sorted(ss.fest + neu))
-emp = engine.empfehlung(wurf, ss.wurf_nr)
+gedreht = any(schritt.get("gedreht") for schritt in ss.verlauf)   # höchstens einmal pro Zug
+emp = engine.empfehlung(wurf, ss.wurf_nr, gedreht)
 
 # --- Empfehlung -------------------------------------------------------------
 st.markdown(wuerfel_html(ss.fest, neu), unsafe_allow_html=True)
 st.markdown(f"**{wurf_name(wurf)}** (Rang {RANG[bewerte(wurf)]})")
 st.success(emp.begruendung(), icon="👉")
 if startspieler and ss.wurf_nr < 3:
-    st.caption(f"Bleibst du jetzt stehen, dürfen die anderen höchstens {ss.wurf_nr}-mal würfeln.")
+    st.caption(f"Klopfst du jetzt, dürfen die anderen höchstens {ss.wurf_nr}-mal würfeln.")
 
 # --- Was tun mit jedem Würfel? ------------------------------------------------
-if emp.beste.option.aktion != "stehen":
+if emp.beste.option.aktion != "klopfen":
     angezeigt = ss.fest + neu   # gleiche Reihenfolge wie die Würfelbilder oben
     wuerfel_tabelle(angezeigt, emp.beste.option)
 
