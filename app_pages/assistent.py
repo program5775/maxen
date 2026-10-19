@@ -2,12 +2,14 @@
 
 Ablauf eines Durchgangs: Würfe eingeben -> Empfehlung + Optionstabelle -> Option
 wählen -> nächster Wurf (liegen gelassene Würfel sind vorbelegt) -> … bis
-„klopfen“. Die App wird am Handy benutzt, daher große Touch-Ziele.
+„klopfen“. Man kann auch direkt bei Wurf 2, 3 oder dem Bonuswurf einsteigen.
+Die App wird am Handy benutzt, daher große Touch-Ziele.
 """
 import streamlit as st
 
 from maxen.regeln import RANG, bewerte, wurf_name
-from ui import AUGEN, augen, lade_engine, optionsknoepfe, optionstabelle, prozent, wuerfel_html, wuerfel_tabelle
+from ui import (AUGEN, LEGENDE, augen, empfehlung_html, lade_engine, optionsknoepfe, optionstabelle, prozent,
+                wuerfel_html)
 
 
 # --- Zustand ----------------------------------------------------------------
@@ -17,6 +19,7 @@ ss.setdefault("wurf_nr", 1)
 ss.setdefault("fest", ())         # Würfel, die aus dem letzten Wurf liegen
 ss.setdefault("verlauf", [])
 ss.setdefault("ende", None)       # Endwurf, sobald „klopfen“ gewählt wurde
+ss.setdefault("vorher_gedreht", False)   # beim Einstieg nach Wurf 1: vorher schon gedreht?
 ss.setdefault("cfg_wuerfe", 3)
 ss.setdefault("cfg_gegner", 1)
 ss.setdefault("cfg_start", False)
@@ -29,6 +32,14 @@ def neuer_durchgang() -> None:
     ss.fest = ()
     ss.verlauf = []
     ss.ende = None
+    ss.vorher_gedreht = False
+
+
+def springe(key: str) -> None:
+    """Direkt bei Wurf Nr. ss[key] einsteigen, z. B. wenn der Assistent erst mitten im Zug geöffnet wird."""
+    nr = ss[key]
+    neuer_durchgang()
+    ss.wurf_nr = nr
 
 
 def wuerfe_geaendert() -> None:
@@ -64,7 +75,7 @@ def zurueck() -> None:
 
 
 # --- Konfiguration des Durchgangs --------------------------------------------
-with st.expander("Durchgang einstellen", expanded=not ss.verlauf and ss.ende is None):
+with st.expander("Durchgang einstellen", expanded=ss.wurf_nr == 1 and not ss.verlauf and ss.ende is None):
     st.toggle("Ich bin Startspieler", key="cfg_start", on_change=neuer_durchgang, persist_state="session")
     if ss.cfg_start:
         st.caption("Als Startspieler darfst du bis zu dreimal würfeln. "
@@ -95,15 +106,24 @@ if ss.ende is not None:
     st.button("↩ Zurück", width="stretch", on_click=zurueck)
     st.stop()
 
-# --- Würfeleingabe ----------------------------------------------------------
-if ss.wurf_nr == 4:
-    st.subheader("Bonuswurf (Wurf 4)")
-elif startspieler:
-    st.subheader(f"Wurf {ss.wurf_nr} (Startspieler, bis zu 3)")
-elif wuerfe == 1:
+# --- Welcher Wurf? -------------------------------------------------------------
+# Wurf wählbar, um mitten im Zug einzusteigen; der Bonuswurf (4) nur bei 3 erlaubten Würfen
+if wuerfe == 1:
     st.subheader("Schuss")
 else:
-    st.subheader(f"Wurf {ss.wurf_nr} von {wuerfe}")
+    st.segmented_control(
+        "Wurf (Startspieler, bis zu 3)" if startspieler else f"Wurf (von {wuerfe})",
+        options=list(range(1, 5 if wuerfe == 3 else wuerfe + 1)),
+        format_func=lambda n: "4 Bonus" if n == 4 else str(n), required=True, default=ss.wurf_nr,
+        key=f"sprung_{ss.durchgang}_{ss.wurf_nr}", on_change=springe, args=(f"sprung_{ss.durchgang}_{ss.wurf_nr}",),
+        width="stretch",
+    )
+    # Eingestiegen bei Wurf 2 oder 3: Gedreht wird nur einmal pro Zug, das beeinflusst die Chancen
+    if wuerfe == 3 and ss.wurf_nr in (2, 3) and not ss.verlauf:
+        ss.vorher_gedreht = st.toggle("In diesem Zug schon gedreht", value=ss.vorher_gedreht,
+                                      key=f"vorher_gedreht_{ss.durchgang}_{ss.wurf_nr}")
+
+# --- Würfeleingabe ----------------------------------------------------------
 
 if ss.fest:
     st.markdown(f"Liegen: {augen(ss.fest, liegt=True)} – gib die neu gewürfelten Würfel ein:",
@@ -126,27 +146,24 @@ if None in neu:
 
 neu = tuple(neu)
 wurf = tuple(sorted(ss.fest + neu))
-gedreht = any(schritt.get("gedreht") for schritt in ss.verlauf)   # höchstens einmal pro Zug
+# höchstens einmal pro Zug
+gedreht = ss.vorher_gedreht or any(schritt.get("gedreht") for schritt in ss.verlauf)
 emp = engine.empfehlung(wurf, ss.wurf_nr, gedreht)
 
-# --- Empfehlung -------------------------------------------------------------
-st.markdown(wuerfel_html(ss.fest, neu), unsafe_allow_html=True)
+# --- Empfehlung: direkt an den Würfeln, was mit jedem passiert -------------------
+st.markdown(empfehlung_html(ss.fest + neu, emp.beste.option), unsafe_allow_html=True)
 st.markdown(f"**{wurf_name(wurf)}** (Rang {RANG[bewerte(wurf)]})")
 st.success(emp.begruendung(), icon="👉")
 if startspieler and ss.wurf_nr < 3:
     st.caption(f"Klopfst du jetzt, dürfen die anderen höchstens {ss.wurf_nr}-mal würfeln.")
 
-# --- Was tun mit jedem Würfel? ------------------------------------------------
-if emp.beste.option.aktion != "klopfen":
-    angezeigt = ss.fest + neu   # gleiche Reihenfolge wie die Würfelbilder oben
-    wuerfel_tabelle(angezeigt, emp.beste.option)
-
-# --- Optionstabelle ---------------------------------------------------------
-optionstabelle(emp)
-
 # --- Auswahl ----------------------------------------------------------------
 st.markdown("**Was machst du?**")
-optionsknoepfe([], waehle, wurf, neu, emp=emp)
+optionsknoepfe(emp, wurf, waehle, wurf, neu)
+st.caption(LEGENDE, unsafe_allow_html=True)
+
+# --- Optionstabelle ---------------------------------------------------------
+optionstabelle(emp, wurf)
 
 if ss.verlauf:
     st.button("↩ Zurück", width="stretch", on_click=zurueck)

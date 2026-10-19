@@ -8,7 +8,7 @@ from maxen.bots import NAMEN
 from maxen.raum import PAUSE_DURCHGANG
 from maxen.spiel import AM_WUERFELN, FERTIG, VERDECKT, Schritt, Zug
 from maxen.engine import optionen
-from ui import AUGEN, augen, dreh_text, ergebnis_html, raeume, schritte_html
+from ui import AUGEN, NEU_MD, augen, empfehlung_html, ergebnis_html, option_md, raeume, schritte_html
 
 AUGEN_WERT = {v: k for k, v in AUGEN.items()}
 
@@ -37,17 +37,24 @@ def wuerfle(at: AppTest, *augen) -> None:
     assert not at.exception
 
 
+def wurf_auswahl(at: AppTest):
+    ss = at.session_state
+    return at.segmented_control(key=f"sprung_{ss.durchgang}_{ss.wurf_nr}")
+
+
 def test_assistent_empfehlung_und_ablauf():
     at = assistent()
-    assert at.subheader[0].value == "Wurf 1 von 3"
+    assert wurf_auswahl(at).value == 1 and wurf_auswahl(at).label == "Wurf (von 3)"
     wuerfle(at, 2, 3, 5)
     emp = Engine(3, 1).empfehlung((2, 3, 5), 1)
     assert at.success[0].value == emp.begruendung()
-    assert len(at.dataframe[0].value) == len(emp.optionen)
+    knoepfe = [b for b in at.button if b.key.startswith("opt_")]
+    assert len(knoepfe) == len(emp.optionen) and knoepfe[0].label == f"{NEU_MD * 3} · {emp.beste.nutzen * 100:.0f} %"
+    assert 'class="maxen optionen"' in "".join(m.value for m in at.markdown)
 
     # beste Option wählen -> Wurf 2, nichts liegt
     at.button(key=f"opt_{emp.beste.option.aktion}_{emp.beste.option.neu_fest}").click().run()
-    assert at.subheader[0].value == "Wurf 2 von 3"
+    assert wurf_auswahl(at).value == 2
 
     # 6,6,6 -> zu 1,1 drehen, dann mit Max 6 klopfen
     wuerfle(at, 6, 6, 6)
@@ -63,13 +70,57 @@ def test_assistent_empfehlung_und_ablauf():
     assert at.session_state.ende is None and at.session_state.wurf_nr == 3
     at.button(key="opt_klopfen_(1, 1, 6)").click().run()
     at.button[0].click().run()
-    assert at.subheader[0].value == "Wurf 1 von 3" and at.session_state.verlauf == []
+    assert wurf_auswahl(at).value == 1 and at.session_state.verlauf == []
+
+
+def test_assistent_direkt_zu_wurf_springen():
+    at = assistent()
+    assert wurf_auswahl(at).options == ["1", "2", "3", "4 Bonus"]
+    wurf_auswahl(at).set_value(3).run()
+    assert at.session_state.wurf_nr == 3 and wurf_auswahl(at).value == 3
+    wuerfle(at, 6, 6, 1)
+    e = Engine(3, 1)
+    assert at.success[0].value == e.empfehlung((1, 6, 6), 3).begruendung()
+    assert at.button(key="opt_drehen_(1, 1)")                       # nach Wurf 3 drehen -> Bonuswurf
+    # schon gedreht: kein zweites Mal
+    at.toggle(key=f"vorher_gedreht_{at.session_state.durchgang}_3").set_value(True).run()
+    assert at.success[0].value == e.empfehlung((1, 6, 6), 3, gedreht=True).begruendung()
+    assert not any(b.key.startswith("opt_drehen") for b in at.button)
+    # weiter zum Bonuswurf: dort bleibt nur Klopfen
+    wurf_auswahl(at).set_value(4).run()
+    wuerfle(at, 1, 1, 4)
+    assert [b.key for b in at.button if b.key.startswith("opt_")] == ["opt_klopfen_(1, 1, 4)"]
+    at.button(key="opt_klopfen_(1, 1, 4)").click().run()
+    assert at.metric[0].value == "Max 4"
+
+
+def test_assistent_schuss_ohne_wurfauswahl():
+    at = assistent()
+    at.segmented_control(key="cfg_wuerfe").set_value(1).run()
+    assert at.subheader[0].value == "Schuss" and not [s for s in at.segmented_control if s.key.startswith("sprung")]
+    at.segmented_control(key="cfg_wuerfe").set_value(2).run()
+    assert wurf_auswahl(at).options == ["1", "2"]
+
+
+def test_optionen_als_piktogramme():
+    o = {x.neu_fest: x for x in optionen((3, 6, 6), True, True)}
+    assert option_md(o[(6, 6)], (3, 6, 6)) == ":green[⚅⚅] " + NEU_MD
+    assert option_md(o[()], (3, 6, 6)) == NEU_MD * 3
+    assert option_md(o[(1, 3)], (3, 6, 6)) == ":blue[⚅⚅→⚀] :green[⚂] " + NEU_MD
+    assert option_md(o[(3, 6, 6)], (3, 6, 6)) == "Klopfen"
+    assert option_md(next(x for x in optionen((6, 6, 6), True, True) if x.neu_fest == (1, 1)),
+                     (6, 6, 6)) == ":blue[⚅⚅⚅→⚀⚀] " + NEU_MD
+    # 6,6,1: einmal drehen und die 1 liegen lassen ergibt auch 1,1, aber nur eine 6 wird gedreht
+    assert option_md(next(x for x in optionen((1, 6, 6), True, True) if x.neu_fest == (1, 1) and x.aktion == "drehen"),
+                     (1, 6, 6)) == ":blue[⚅⚅→⚀] :green[⚀] " + NEU_MD
+    html = empfehlung_html((6, 3, 6), o[(1, 3)])
+    assert html.count('class="ew drehen"') == 1 and html.count('class="ew neu"') == 1 and 'class="ew liegen"' in html
 
 
 def test_assistent_startspieler():
     at = assistent()
     at.toggle(key="cfg_start").set_value(True).run()
-    assert at.subheader[0].value == "Wurf 1 (Startspieler, bis zu 3)"
+    assert wurf_auswahl(at).label == "Wurf (Startspieler, bis zu 3)"
     wuerfle(at, 4, 4, 6)
     assert at.success[0].value == Engine(3, 1, startspieler=True).empfehlung((4, 4, 6), 1).begruendung()
     assert any("höchstens 1-mal" in c.value for c in at.caption)
@@ -230,12 +281,6 @@ def test_verdeckter_wurf_auch_fuer_dich_verdeckt():
     assert ergebnis_html(z, alles=True) == augen((1, 1, 5))                               # Würfel statt „Max 5“
 
 
-def test_dreh_text_mit_wuerfelsymbolen():
-    texte = {dreh_text(o) for o in optionen((6, 6, 6), True, True) if o.aktion == "drehen"}
-    assert texte == {"⚅ ⚅ zu ⚀ drehen, ⚅ liegen lassen und 1 Würfel neu", "⚅ ⚅ zu ⚀ drehen und 2 Würfel neu",
-                     "⚅ ⚅ ⚅ zu ⚀ ⚀ drehen und 1 Würfel neu"}
-
-
 def test_spiel_stechen_per_wuerfeln():
     at = betrete("stechen", "Anna", seed=2)
     starte_spiel(at, 2)
@@ -321,3 +366,33 @@ def test_betreten_ohne_name():
     at.button(key="spiel_betreten").click().run()
     assert not at.exception and at.session_state.spiel_raum is None
     assert any("Namen" in w.value for w in at.warning)
+
+
+def test_bildschirm_anlassen_schalter():
+    """Schalter im Seitenmenü, Standard an; das Skript bekommt den Zustand mit."""
+    at = starte()
+    schalter = at.sidebar.toggle(key="wach")
+    assert schalter.value is True
+    assert "maxenWach = true" in at.sidebar.get("html")[0].proto.body
+    schalter.set_value(False).run()
+    assert "maxenWach = false" in at.sidebar.get("html")[0].proto.body
+    at.switch_page("app_pages/assistent.py").run()
+    assert at.sidebar.toggle(key="wach").value is False        # gilt für alle Seiten
+
+
+def test_raum_aus_der_liste_betreten():
+    """Aktive Räume stehen beim Einstieg; antippen tritt bei, wenn der Name schon steht."""
+    anna = betrete("liste-tisch", "Anna")
+    ben = starte()
+    ben.switch_page("app_pages/spiel.py").run()
+    knopf = ben.button(key="spiel_raum_liste-tisch")
+    assert "liste-tisch" in knopf.label and "1 Mensch" in knopf.label and "Warteraum" in knopf.label
+    # ohne Namen: nur eintragen und nach dem Namen fragen
+    knopf.click().run()
+    assert ben.text_input(key="cfg_spiel_raum").value == "liste-tisch" and ben.warning
+    assert ben.button(key="spiel_betreten")
+    # mit Namen: sofort im Raum
+    ben.text_input(key="cfg_spiel_name").set_value("Ben")
+    ben.button(key="spiel_raum_liste-tisch").click().run()
+    assert not ben.exception and raum_von(anna).menschen == ["Anna", "Ben"]
+    assert ben.query_params["raum"] == "liste-tisch" and ben.subheader[0].value == "Raum liste-tisch"

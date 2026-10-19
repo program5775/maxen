@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from maxen.bots import Anfaenger, Mathematiker, Stammspieler
+from maxen.bots import Anfaenger, Kneipengaenger, Mathematiker
 from maxen.engine import Option
 from maxen.regeln import bewerte
 from maxen.spiel import (
@@ -372,7 +372,7 @@ def spiele_runde(s: Sitzung, rng: random.Random, pruefe=True) -> None:
 
 def neue_sitzung(seed, menschen=("Anna",)):
     spieler = [Spieler(n) for n in menschen] + [
-        Spieler("Mathematiker", Mathematiker()), Spieler("Stammspieler", Stammspieler()), Spieler("Anfänger", Anfaenger())]
+        Spieler("Mathematiker", Mathematiker()), Spieler("Kneipengänger", Kneipengaenger()), Spieler("Anfänger", Anfaenger())]
     return Sitzung(spieler, random.Random(seed))
 
 

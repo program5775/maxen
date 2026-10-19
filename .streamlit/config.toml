@@ -1,0 +1,8 @@
+# Grün statt Streamlit-Rot für Knöpfe und Akzente (Würfeln, Raum betreten, Schalter, Auswahl).
+# Dunkler als das Grün der Würfel (#22a559), damit weiße Schrift auf den Knöpfen gut lesbar ist.
+# In [theme.light] und [theme.dark], damit Hell/Dunkel weiter dem Handy folgt.
+[theme.light]
+primaryColor = "#15803d"
+
+[theme.dark]
+primaryColor = "#15803d"

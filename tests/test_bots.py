@@ -3,7 +3,7 @@ import random
 import pytest
 
 from maxen import Engine
-from maxen.bots import NAMEN, Anfaenger, Lage, Mathematiker, Stammspieler, bot_namen, faustregel
+from maxen.bots import NAMEN, Anfaenger, Kneipengaenger, Lage, Mathematiker, bot_namen, faustregel
 from maxen.regeln import ALLE_WUERFE
 
 
@@ -39,26 +39,26 @@ def test_mathematiker_waehlt_immer_beste():
 
 def test_bots_waehlen_nur_erlaubte_optionen():
     rng = random.Random(1)
-    for bot in (Mathematiker(), Stammspieler(), Anfaenger()):
+    for bot in (Mathematiker(), Kneipengaenger(), Anfaenger()):
         for emp, lage in alle_empfehlungen():
             assert bot.waehle(emp, rng, lage) in [b.option for b in emp.optionen]
 
 
 @pytest.mark.parametrize("startspieler", [False, True])
 @pytest.mark.parametrize("gegner", [1, 3])
-def test_stammspieler_legt_6_und_1_heraus(gegner, startspieler):
+def test_kneipengaenger_legt_6_und_1_heraus(gegner, startspieler):
     """6,3,1 nach Wurf 1: 6 und 1 liegen lassen, nie nur die 1, und als Startspieler nicht schießen."""
-    bot = Stammspieler()
+    bot = Kneipengaenger()
     assert {o.neu_fest for o in waehlt(bot, (1, 3, 6), 1, gegner, startspieler)} == {(1, 6)}
     # 1,3,4 nach Wurf 2: die 1 bleibt liegen
     assert all(1 in o.neu_fest for o in waehlt(bot, (1, 3, 4), 2, gegner, startspieler))
 
 
 @pytest.mark.parametrize("wurf", [(2, 6, 6), (1, 4, 6), (1, 6, 6)])
-def test_stammspieler_schiesst_nicht_mit_6_6_oder_6_1(wurf):
+def test_kneipengaenger_schiesst_nicht_mit_6_6_oder_6_1(wurf):
     for gegner in range(1, 6):
         for bricken in (0, 2, 8):
-            optionen = waehlt(Stammspieler(), wurf, 1, gegner, startspieler=True, bricken=bricken, mal=50)
+            optionen = waehlt(Kneipengaenger(), wurf, 1, gegner, startspieler=True, bricken=bricken, mal=50)
             assert all(o.aktion != "klopfen" for o in optionen)
 
 
@@ -73,9 +73,9 @@ def test_stammspieler_schiesst_nicht_mit_6_6_oder_6_1(wurf):
     (2, 0, 2, (1, 1, 2), 1, "klopfen"), (2, 0, 4, (1, 1, 3), 1, "max"), (2, 0, 4, (1, 1, 4), 2, "klopfen"),
     (2, 0, 6, (1, 1, 5), 2, "max"), (2, 0, 3, (2, 3, 4), 1, "klopfen"), (2, 0, 5, (4, 4, 4), 1, "klopfen"),
 ])
-def test_stammspieler_plan_je_phase(phase, mitte, bricken, wurf, nr, vorhaben):
+def test_kneipengaenger_plan_je_phase(phase, mitte, bricken, wurf, nr, vorhaben):
     for gegner in (1, 3, 5):
-        optionen = waehlt(Stammspieler(), wurf, nr, gegner, bricken=bricken, phase=phase, mitte=mitte, mal=20)
+        optionen = waehlt(Kneipengaenger(), wurf, nr, gegner, bricken=bricken, phase=phase, mitte=mitte, mal=20)
         if vorhaben == "klopfen":
             assert {o.aktion for o in optionen} == {"klopfen"}
         else:
@@ -87,23 +87,23 @@ def test_faustregeln_erlauben_immer_eine_option_oder_greifen_nicht():
     emp = Engine(3, 2).empfehlung((1, 1, 4), 3)
     lage = Lage((1, 1, 4), 3, phase=1, mitte=2)
     assert not any(faustregel(b.option, lage) for b in emp.optionen)
-    assert Stammspieler().waehle(emp, random.Random(1), lage).aktion == "klopfen"
+    assert Kneipengaenger().waehle(emp, random.Random(1), lage).aktion == "klopfen"
 
 
-def test_stammspieler_meist_gut():
+def test_kneipengaenger_meist_gut():
     """Wählt meistens die beste Option unter den Faustregeln, aber nicht immer; ohne Temperatur immer."""
     rng = random.Random(1)
     faelle = [(emp, lage) for emp, lage in alle_empfehlungen() if len(emp.optionen) > 1]
-    treffer = sum(Stammspieler().waehle(emp, rng, lage) == regel_beste(emp, lage).option
+    treffer = sum(Kneipengaenger().waehle(emp, rng, lage) == regel_beste(emp, lage).option
                   for emp, lage in faelle) / len(faelle)
     assert 0.5 < treffer < 1
-    assert all(Stammspieler(1e-9).waehle(emp, rng, lage) == regel_beste(emp, lage).option for emp, lage in faelle)
+    assert all(Kneipengaenger(1e-9).waehle(emp, rng, lage) == regel_beste(emp, lage).option for emp, lage in faelle)
 
 
-def test_stammspieler_keine_groben_fehler():
+def test_kneipengaenger_keine_groben_fehler():
     """Nie mehr als 3 Prozentpunkte unter der besten Option der Faustregeln; 6,6,1 nach Wurf 2 wird immer gedreht."""
     rng = random.Random(1)
-    bot = Stammspieler()
+    bot = Kneipengaenger()
     for emp, lage in alle_empfehlungen():
         nutzen = {b.option: b.nutzen for b in emp.optionen}
         assert regel_beste(emp, lage).nutzen - nutzen[bot.waehle(emp, rng, lage)] <= 0.03 + 1e-12

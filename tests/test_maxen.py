@@ -71,6 +71,18 @@ def test_bonuswurf_nach_drittem_wurf():
     b = Engine(wuerfe=3).empfehlung((6, 6, 6), wurf_nr=3).beste
     assert b.option.neu_fest == (1, 1)
     assert b.mindestens(3) == pytest.approx(1)
+    assert b.bonus == 1
+
+
+def test_bonuswurf_in_den_chancen():
+    """Der Bonuswurf steckt in den Chancen: 6,6 nach Wurf 2 liegen lassen bringt einen Bonuswurf,
+    wenn eine 1 oder 6 dazukommt (nach Wurf 3 wird dann gedreht), also mit Chance 1/3."""
+    e = Engine(wuerfe=3)
+    bew = {b.option.neu_fest: b for b in e.empfehlung((3, 6, 6), wurf_nr=2).optionen}
+    assert bew[(6, 6)].bonus == pytest.approx(1 / 3)
+    assert bew[(3, 6, 6)].bonus == 0                                # klopfen
+    assert Engine(wuerfe=2).startwert().bonus == 0                  # kein Bonuswurf bei Grenze 2
+    assert "Bonuswurf" in e.empfehlung((3, 6, 6), wurf_nr=1).begruendung()
 
 
 def test_wieder_aufnehmen():
@@ -140,3 +152,9 @@ def test_startspieler_im_vorteil():
         assert Engine(3, g, startspieler=True).startwert().nutzen > Engine(3, g).startwert().nutzen
     with pytest.raises(ValueError):
         Engine(2, startspieler=True)
+
+
+def test_drehen_erst_mit_zwei_neuen_wuerfeln():
+    """Reihenfolge der Knöpfe im Spiel: „6,6 zu 1 drehen, 2 Würfel neu“ vor „…, 4 liegen lassen“."""
+    dreh = [o.neu_fest for o in optionen((4, 6, 6), True, True) if o.aktion == "drehen"]
+    assert dreh == [(1,), (1, 4)]

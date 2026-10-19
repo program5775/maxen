@@ -20,7 +20,7 @@ from maxen.bots import STUFEN
 from maxen.raum import MAX_BOTS, WARTEN
 from maxen.regeln import bewerte, name, wurf_name
 from maxen.spiel import AM_WUERFELN, BEREIT, WUERFELN, aufzaehlung
-from ui import (AUGEN, augen, dreh_text, ergebnis_html, lade_engine, optionstabelle, prozent, raeume, schritte_html,
+from ui import (AUGEN, augen, ergebnis_html, lade_engine, option_md, optionstabelle, prozent, raeume, schritte_html,
                 tabelle_html, verdeckt)
 
 DIALOG_SEKUNDEN = 3     # so lange bleibt das Ergebnis-Pop-up offen
@@ -35,6 +35,7 @@ ss.setdefault("spiel_dialog_key", None)  # Durchgang, dessen Ergebnis-Pop-up zul
 ss.setdefault("spiel_dialog_bis", 0.0)   # bis wann es offen bleibt (time.monotonic)
 ss.setdefault("spiel_dialog_zu", False)  # vom Spieler weggeklickt
 ss.setdefault("spiel_url_geprueft", False)
+ss.setdefault("spiel_neu_zeichnen", False)   # Raum aus der Liste gewählt: ganze Seite neu zeichnen
 ss.setdefault("cfg_spiel_name", "")
 if "cfg_spiel_raum" not in ss:
     ss.cfg_spiel_raum = st.query_params.get("raum", "")
@@ -51,6 +52,16 @@ def betreten() -> None:
         return
     ss.spiel_raum, ss.spiel_name = r.id, n
     st.query_params.from_dict({"raum": r.id, "name": n})
+
+
+def raum_waehlen(rid: str) -> None:
+    """Raum aus der Liste angetippt: Raum eintragen und, wenn der Name schon steht, sofort beitreten."""
+    ss.cfg_spiel_raum = rid
+    ss.spiel_neu_zeichnen = True
+    if ss.cfg_spiel_name.strip():
+        betreten()
+    else:
+        ss.spiel_meldung = "Bitte gib zuerst deinen Namen ein."
 
 
 def verlassen() -> None:
@@ -198,6 +209,26 @@ if raum is None:
                "Allein gegen Computergegner: einfach einen eigenen Raum erstellen.")
     st.button("Raum betreten", key="spiel_betreten", type="primary", width="stretch", on_click=betreten,
               icon=":material/login:")
+
+    @st.fragment(run_every=5)
+    def aktive_raeume() -> None:
+        """Aktive Räume zum Antippen, zuletzt geänderte zuerst; aktualisiert sich alle 5 Sekunden."""
+        if ss.spiel_neu_zeichnen:          # Knopf im Fragment, der Rest der Seite muss sich auch ändern
+            ss.spiel_neu_zeichnen = False
+            st.rerun(scope="app")
+        st.markdown("**Aktive Räume**")
+        liste = raeume().liste()
+        if not liste:
+            st.caption("Gerade gibt es keine aktiven Räume.")
+        for r in liste:
+            wer = f"{len(r.menschen)} {'Mensch' if len(r.menschen) == 1 else 'Menschen'}"
+            if r.bots:
+                wer += f" + {r.bots} 🤖"
+            st.button(f"**{r.id}** · {wer} · {'Warteraum' if r.status == WARTEN else 'Spiel läuft'}",
+                      key=f"spiel_raum_{r.id}", width="stretch", icon=":material/meeting_room:",
+                      on_click=raum_waehlen, args=(r.id,))
+
+    aktive_raeume()
     st.stop()
 
 ich_name = ss.spiel_name
@@ -220,10 +251,11 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
             ss.cfg_raum_bots, ss.cfg_raum_stufe = raum.bots, raum.stufe
             st.segmented_control("Computergegner", options=list(range(MAX_BOTS + 1)), key="cfg_raum_bots",
                                  required=True, on_change=einstellen, args=("bots",))
-            st.segmented_control("Stärke", options=list(STUFEN), key="cfg_raum_stufe", required=True,
-                                 on_change=einstellen, args=("stufe",))
+            with st.container(key="stufe_wahl"):   # lange Namen: kleinere Schrift, sonst am Handy abgeschnitten
+                st.segmented_control("Stärke", options=list(STUFEN), key="cfg_raum_stufe", required=True,
+                                     on_change=einstellen, args=("stufe",), width="stretch")
             st.caption("Anfänger: macht öfter Fehler, hält sich nur manchmal an die Faustregeln. "
-                       "Stammspieler: spielt nach den Faustregeln vom Tisch und sonst meist gut. "
+                       "Kneipengänger: spielt nach den Faustregeln vom Tisch und sonst meist gut. "
                        "Mathematiker: spielt immer die Empfehlung der Engine.")
             genug = len(raum.menschen) + raum.bots >= 2
             st.button("Spiel starten", key="spiel_starten", type="primary", width="stretch",
@@ -427,13 +459,15 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
                 else:
                     st.button(mit_chance("Nicht drehen", klopfen), key="spiel_klopfen", type="primary",
                               width="stretch", on_click=raum.ausfuehren, args=(ich_name, marke, klopfen))
-                for o in opts:
-                    if o.aktion == "drehen":
-                        st.button(mit_chance(dreh_text(o), o), key=f"opt_{o.aktion}_{o.neu_fest}", width="stretch",
-                                  icon=":material/autorenew:", on_click=raum.ausfuehren, args=(ich_name, marke, o))
+                # Drehen als Piktogramm, z. B. ⚅⚅→⚀ ?? (neu gewürfelte Würfel als Kästchen mit „?“)
+                with st.container(key="optionen"):
+                    for o in opts:
+                        if o.aktion == "drehen":
+                            st.button(mit_chance(option_md(o, zug.wurf), o), key=f"opt_{o.aktion}_{o.neu_fest}",
+                                      width="stretch", on_click=raum.ausfuehren, args=(ich_name, marke, o))
                 if emp is not None:
                     with st.expander("Wahrscheinlichkeiten pro Option"):
-                        optionstabelle(emp)
+                        optionstabelle(emp, zug.wurf)
 
         with st.expander("Spielstand"):
             st.table(

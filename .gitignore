@@ -225,3 +225,7 @@ __marimo__/
 
 # Notizen für Claude Code (nur lokal)
 CLAUDE.md
+
+# Nextcloud-Synchronisation
+.sync-exclude.lst
+.sync_*.db*

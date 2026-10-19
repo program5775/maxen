@@ -113,9 +113,10 @@ def optionen(wurf, wuerfeln: bool, drehen: bool) -> list[Option]:
 
     if drehen and wurf.count(6) >= 2:
         rest = wurf[0] if wurf.count(6) == 2 else 6
+        # Erst „2 Würfel neu“: Den dritten Würfel liegen zu lassen, ist selten sinnvoll (Reihenfolge der Knöpfe)
         for nf, txt in (
-            (tuple(sorted((1, rest))), f"6,6 zu 1 drehen, {rest} liegen lassen, 1 Würfel neu"),
             ((1,), "6,6 zu 1 drehen, 2 Würfel neu"),
+            (tuple(sorted((1, rest))), f"6,6 zu 1 drehen, {rest} liegen lassen, 1 Würfel neu"),
         ):
             if nf not in gefunden:
                 gefunden[nf] = Option("drehen", nf, txt)
@@ -156,6 +157,7 @@ class Bewertung:
     option: Option
     nutzen: float                      # Chance, nicht zu verlieren (bei optimalem Weiterspiel)
     verteilung: Verteilung             # Endergebnis-Verteilung bei optimalem Weiterspiel
+    bonus: float = 0.0                 # Chance auf einen Bonuswurf (Wurf 4) bei optimalem Weiterspiel
 
     def kategorien(self) -> dict[str, float]:
         k = {n: 0.0 for n in KATEGORIE_NAMEN.values()}
@@ -221,20 +223,21 @@ class Engine:
         return self.nutzen
 
     # --- Dynamische Programmierung ------------------------------------------
-    def zustand(self, fest: tuple[int, ...], wurf_nr: int, gedreht: bool = False) -> tuple[float, Verteilung]:
-        """Wert und Endverteilung, wenn `fest` liegt und gleich Wurf Nr. `wurf_nr` folgt.
-        `gedreht`: in diesem Zug wurde schon gedreht."""
+    def zustand(self, fest: tuple[int, ...], wurf_nr: int, gedreht: bool = False) -> tuple[float, Verteilung, float]:
+        """Wert, Endverteilung und Chance auf den Bonuswurf, wenn `fest` liegt und gleich
+        Wurf Nr. `wurf_nr` folgt. `gedreht`: in diesem Zug wurde schon gedreht."""
         key = (fest, wurf_nr, gedreht)
         if key in self._cache:
             return self._cache[key]
-        wert = 0.0
+        wert = bonus = 0.0
         vert: Verteilung = defaultdict(float)
         for ergebnis, p in wurf_verteilung(3 - len(fest)):
             beste = self.bewerte_optionen(fest + ergebnis, wurf_nr, gedreht)[0]
             wert += p * beste.nutzen
+            bonus += p * beste.bonus
             for s, q in beste.verteilung.items():
                 vert[s] += p * q
-        self._cache[key] = (wert, dict(vert))
+        self._cache[key] = (wert, dict(vert), 1.0 if wurf_nr == 4 else bonus)
         return self._cache[key]
 
     def bewerte_optionen(self, wurf, wurf_nr: int, gedreht: bool = False) -> list[Bewertung]:
@@ -284,6 +287,8 @@ class Empfehlung:
             txt = (f"{b.option.text} – ~{b.mindestens(ziel) * 100:.0f}% Chance auf "
                    f"{KATEGORIE_NAMEN[ziel]} oder besser, "
                    f"~{b.nutzen * 100:.0f}% Chance, nicht zu verlieren.")
+            if b.bonus >= 0.05:
+                txt += f" Dabei ~{b.bonus * 100:.0f}% Chance auf einen Bonuswurf."
         if len(self.optionen) > 1:
             z = self.optionen[1]
             txt += f" Nächstbeste Option: {z.option.text} ({z.nutzen * 100:.0f}%)."

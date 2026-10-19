@@ -4,9 +4,9 @@ Start: streamlit run app.py
 """
 import streamlit as st
 
-from ui import STIL
+from ui import STIL, bildschirm_anlassen
 
-st.set_page_config(page_title="Maxen", page_icon="🎲", layout="centered")
+st.set_page_config(page_title="Maxen", page_icon="🎲", layout="centered", initial_sidebar_state="collapsed")
 st.markdown(STIL, unsafe_allow_html=True)
 
 seite = st.navigation(
@@ -17,4 +17,9 @@ seite = st.navigation(
     ],
     position="top",
 )
+# Am Handy klappt die Navigation oben in das Seitenmenü; der Schalter steht dort unter „Regeln“
+with st.sidebar:
+    st.toggle("Bildschirm anlassen", key="wach", value=True,
+              help="Verhindert, dass sich der Bildschirm während des Spiels ausschaltet (wenn der Browser das kann).")
+    bildschirm_anlassen(st.session_state.wach)
 seite.run()

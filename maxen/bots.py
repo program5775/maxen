@@ -29,7 +29,7 @@ class Lage:
 
 
 def plan(lage: Lage) -> str | None:
-    """Was ein Stammspieler mit einem guten Wurf vorhat: "klopfen", "max" (1,1 liegen lassen, für einen
+    """Was ein Kneipengänger mit einem guten Wurf vorhat: "klopfen", "max" (1,1 liegen lassen, für einen
     höheren Max oder den General) oder None (keine Faustregel, die Engine entscheidet).
 
     Phase 1 (Verteilen):
@@ -56,7 +56,7 @@ def plan(lage: Lage) -> str | None:
 
 
 def faustregel(option: Option, lage: Lage) -> bool:
-    """Hält `option` die Faustregeln der Stammspieler ein?
+    """Hält `option` die Faustregeln der Kneipengänger ein?
 
     * Mit Max, Pasch oder Straße je nach Phase und Bricken klopfen oder auf einen höheren Max
       gehen (siehe `plan`).
@@ -101,7 +101,7 @@ def logit(p: float) -> float:
     return math.log(p / (1 - p))
 
 
-class Stammspieler(Bot):
+class Kneipengaenger(Bot):
     """Spielt nach den Faustregeln (`faustregel`) und unter den Optionen, die sie erlauben, meist gut.
 
     In `regeltreue` der Fälle hält er sich an die Faustregeln; erlauben sie keine Option, gelten alle.
@@ -110,7 +110,7 @@ class Stammspieler(Bot):
     Log-Odds statt der Chance selbst, weil bei vielen Gegnern alle Chancen nahe 100 % liegen und klare
     Fehler dann nur kleine Abstände haben (6,6,1 nach Wurf 2 gegen 5 Gegner: Drehen 99,9 %,
     6,6 liegen lassen 92,6 %). Je höher die Temperatur, desto öfter weicht er von der besten Option ab."""
-    stufe = "Stammspieler"
+    stufe = "Kneipengänger"
 
     def __init__(self, temperatur: float = 0.3, grenze: float = 0.03, regeltreue: float = 1.0):
         self.temperatur = temperatur
@@ -127,8 +127,8 @@ class Stammspieler(Bot):
         return rng.choices(kandidaten, weights=gewichte)[0].option
 
 
-class Anfaenger(Stammspieler):
-    """Wie der Stammspieler, aber mit größeren Fehlern (bis 15 Prozentpunkte unter der besten Option)
+class Anfaenger(Kneipengaenger):
+    """Wie der Kneipengänger, aber mit größeren Fehlern (bis 15 Prozentpunkte unter der besten Option)
     und nur in einem Drittel der Fälle nach den Faustregeln."""
     stufe = "Anfänger"
 
@@ -136,7 +136,7 @@ class Anfaenger(Stammspieler):
         super().__init__(temperatur, grenze, regeltreue)
 
 
-STUFEN: dict[str, type[Bot]] = {b.stufe: b for b in (Anfaenger, Stammspieler, Mathematiker)}
+STUFEN: dict[str, type[Bot]] = {b.stufe: b for b in (Anfaenger, Kneipengaenger, Mathematiker)}
 
 NAMEN = ("Ana", "Jenni", "Hanna", "Anika", "Roman", "Peter", "Tess", "Danny", "Andy")
 

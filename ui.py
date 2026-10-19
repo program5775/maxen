@@ -1,5 +1,5 @@
 """Gemeinsame UI-Teile für Assistent und Spielseite."""
-import re
+import base64
 
 import streamlit as st
 
@@ -9,6 +9,13 @@ from maxen.regeln import MAX, PASCH, STRASSE
 
 AUGEN = {1: "⚀", 2: "⚁", 3: "⚂", 4: "⚃", 5: "⚄", 6: "⚅"}
 GRUEN = "#22a559"
+BLAU = "#1c83e1"
+# Neu gewürfelter Würfel als Kästchen mit „?“, wie die verdeckten Würfe (`verdeckt`). In Knöpfen geht
+# kein HTML, dort steht es als SVG-Bild (grau, passt zu hellem und dunklem Design)
+_FRAGE_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect x="1.5" y="1.5" width="17" '
+              'height="17" rx="3" fill="none" stroke="#808495" stroke-width="2"/><text x="10" y="15" '
+              'font-size="13" font-weight="700" text-anchor="middle" fill="#808495" font-family="sans-serif">?</text></svg>')
+NEU_MD = f"![neu](data:image/svg+xml;base64,{base64.b64encode(_FRAGE_SVG.encode()).decode()})"
 
 STIL = f"""
 <style>
@@ -18,6 +25,7 @@ div[data-testid="stButtonGroup"] button {{
     min-height: 3.2rem; min-width: 3.2rem; font-size: 1.4rem; flex: 1 1 0;
 }}
 div[data-testid="stButton"] button {{ min-height: 3.2rem; }}
+.st-key-stufe_wahl button {{ font-size: 1rem; padding-left: .25rem; padding-right: .25rem; }}
 .wuerfel {{ font-size: 4.5rem; line-height: 1.1; letter-spacing: .4rem; }}
 .wuerfel .fest {{ opacity: .5; }}
 .wuerfel .w, .wuerfel .q {{ font-size: 1em; }}
@@ -57,10 +65,38 @@ table.maxen td:nth-child(3) {{ white-space: nowrap; }}
 .st-key-assistent_wuerfel button {{ padding-left: 0; padding-right: 0; }}
 .st-key-assistent_wuerfel button * {{ font-size: 2.4rem; line-height: 1.1; }}
 
+/* Assistent: Empfehlung direkt unter den Würfeln (liegen grün, neu blass, drehen blau) */
+.empf {{ display: flex; gap: 1rem; margin: .2rem 0 .8rem; }}
+.empf .ew {{ display: flex; flex-direction: column; align-items: center; }}
+.empf .ew > span {{ font-size: 4.5rem; line-height: 1.05; }}
+.empf .ew small {{ font-size: 1.05rem; font-weight: 600; white-space: nowrap; }}
+.empf .liegen {{ color: {GRUEN}; }}
+.empf .neu > span {{ opacity: .4; }}
+.empf .drehen, .dreh {{ color: {BLAU}; }}
+.legende {{ white-space: nowrap; }}
+
+/* Optionen als Piktogramme: groß genug, dass man sie am Handy lesen kann */
+.st-key-optionen button p {{ font-size: 1.35rem; }}
+/* Würfelsymbole sind in der Schrift klein; sie stehen als farbiger Text in eigenen Spans */
+.st-key-optionen button .stMarkdownColoredText {{ font-size: 1.7em; line-height: 1; vertical-align: -.12em; }}
+.st-key-optionen button p img {{ height: 1.45em; max-height: none; vertical-align: -.3em; margin: 0 .05em; }}
+/* Empfohlene Option hellgrün mit grünem Rahmen statt voll in der Primärfarbe (grüne Würfel auf grünem
+   Knopf wären kaum lesbar) */
+.st-key-optionen button[kind="primary"] {{
+    background: rgba(34, 165, 89, .15); border: 2px solid {GRUEN}; color: inherit;
+}}
+.st-key-optionen button[kind="primary"]:hover {{ background: rgba(34, 165, 89, .25); border-color: {GRUEN}; color: inherit; }}
+table.maxen.optionen {{ font-size: 1rem; }}
+table.maxen.optionen th, table.maxen.optionen td {{ padding-left: .25rem; padding-right: .25rem; }}
+table.maxen.optionen td:not(:first-child), table.maxen.optionen th:not(:first-child) {{ text-align: right; }}
+table.maxen.optionen td:not(:first-child) {{ white-space: nowrap; }}
+table.maxen.optionen td .w, table.maxen.optionen td .q {{ font-size: 1.3em; }}
+.tabelle-scroll {{ overflow-x: auto; }}
+
 /* Eigener Wurf: Würfel antippen, die liegen bleiben (grün) */
 .st-key-spiel_wuerfel button {{ min-height: 4.6rem; }}
 .st-key-spiel_wuerfel button * {{ font-size: 3.4rem; line-height: 1.1; }}
-/* Ausgewählte Pills (react-aria, Attribut data-selected) färbt Streamlit in der Primärfarbe rot,
+/* Ausgewählte Pills (react-aria, Attribut data-selected) färbt Streamlit in der Primärfarbe,
    daher !important. Grüne Würfel wie in der Tabelle und unter „Dein Wurf“, dazu ein grüner Rahmen */
 .st-key-spiel_wuerfel button[data-selected],
 .st-key-spiel_wuerfel button[data-selected]:hover,
@@ -71,11 +107,33 @@ table.maxen td:nth-child(3) {{ white-space: nowrap; }}
 </style>
 """
 
-AKTION_BADGE = {
-    "liegen": ":green-badge[:material/lock: liegen lassen]",
-    "neu": ":orange-badge[:material/casino: neu würfeln]",
-    "drehen": ":blue-badge[:material/autorenew: auf 1 drehen]",
-}
+
+WACH_JS = """<script>
+// Bildschirm anlassen (Screen Wake Lock API). Der Browser gibt die Sperre frei, sobald die Seite
+// nicht sichtbar ist (Tab gewechselt, Handy gesperrt); beim Zurückkehren wird sie neu angefordert.
+// Läuft bei jeder Änderung des Schalters erneut, der Listener wird nur einmal registriert.
+(() => {
+  const w = window;
+  w.maxenWach = __AN__;
+  if (!("wakeLock" in navigator)) return;
+  w.maxenWachAnfordern ??= async () => {
+    if (!w.maxenWach || document.visibilityState !== "visible" || (w.maxenSperre && !w.maxenSperre.released)) return;
+    try { w.maxenSperre = await navigator.wakeLock.request("screen"); } catch (e) { /* z. B. Energiesparmodus */ }
+  };
+  if (!w.maxenWachListener) {
+    w.maxenWachListener = true;
+    document.addEventListener("visibilitychange", () => w.maxenWachAnfordern());
+  }
+  if (w.maxenWach) w.maxenWachAnfordern();
+  else if (w.maxenSperre) { w.maxenSperre.release(); w.maxenSperre = null; }
+})();
+</script>"""
+
+
+def bildschirm_anlassen(an: bool) -> None:
+    """Hält den Bildschirm des Handys an, solange die Seite sichtbar ist (wenn der Browser es kann).
+    JavaScript muss direkt in der Seite laufen, nicht im iframe von `st.components.v1.html`."""
+    st.html(WACH_JS.replace("__AN__", "true" if an else "false"), unsafe_allow_javascript=True)
 
 
 @st.cache_resource(show_spinner="Berechne optimale Strategie …")
@@ -100,14 +158,6 @@ def augen(werte, liegt: bool = False) -> str:
     """Würfelsymbole als HTML, absteigend; `liegt`: liegen gelassene Würfel (grün)."""
     k = "w liegt" if liegt else "w"
     return "".join(f'<span class="{k}">{AUGEN[x]}</span>' for x in sorted(werte, reverse=True))
-
-
-def dreh_text(option) -> str:
-    """Optionstext mit Würfelsymbolen statt Zahlen, z. B. „⚅ ⚅ zu ⚀ drehen, ⚀ liegen lassen und
-    1 Würfel neu“. Anzahlen („1 Würfel neu“) bleiben Zahlen."""
-    text = re.sub(r"[1-6](?:,[1-6])*(?! Würfel)",
-                  lambda m: " ".join(AUGEN[int(x)] for x in m.group().split(",")), option.text)
-    return re.sub(r", (\d Würfel neu)$", r" und \1", text)
 
 
 def verdeckt(anzahl: int) -> str:
@@ -137,7 +187,7 @@ def ergebnis_html(z, alles: bool = False) -> str:
     return augen(sch.fest, liegt=True) + verdeckt(len(sch.neu))
 
 
-def tabelle_html(kopf: list[str], zeilen: list[dict]) -> str:
+def tabelle_html(kopf: list[str], zeilen: list[dict], klasse: str = "maxen") -> str:
     """HTML-Tabelle; Zellen sind fertiges HTML. Zeilen mit `_am_zug` werden hervorgehoben,
     ebenso `_klasse` (CSS-Klasse der Zeile, z. B. „bester“ oder „verlierer“)."""
     th = "".join(f"<th>{k}</th>" for k in kopf)
@@ -146,65 +196,102 @@ def tabelle_html(kopf: list[str], zeilen: list[dict]) -> str:
         + "".join(f"<td>{z[k]}</td>" for k in kopf) + "</tr>"
         for z in zeilen
     )
-    return f'<table class="maxen"><thead><tr>{th}</tr></thead><tbody>{tr}</tbody></table>'
+    return f'<table class="{klasse}"><thead><tr>{th}</tr></thead><tbody>{tr}</tbody></table>'
 
 
 def prozent(x: float) -> str:
     return f"{x * 100:.0f} %"
 
 
-def wuerfel_tabelle(wuerfel, option) -> None:
-    """Was mit jedem Würfel passiert, in der Reihenfolge von `wuerfel`."""
-    st.table(
+def option_teile(option, wurf) -> tuple[int, tuple[int, ...], int]:
+    """(gedrehte Sechsen, liegen gelassene Würfel ohne die gedrehten 1en, neu gewürfelte Würfel).
+    Gedreht werden 6,6 -> 1 oder 6,6,6 -> 1,1; ohne Drehen ist die erste Zahl 0."""
+    liegen = list(option.neu_fest)
+    zu_eins = 0
+    if option.aktion == "drehen":
+        zu_eins = 2 if tuple(wurf).count(6) == 3 and option.neu_fest == (1, 1) else 1
+        for _ in range(zu_eins):
+            liegen.remove(1)
+    return (zu_eins + 1 if zu_eins else 0), tuple(sorted(liegen, reverse=True)), option.neu_wuerfeln
+
+
+def option_md(option, wurf) -> str:
+    """Option als Piktogramm für Knöpfe (Markdown): liegen gelassene Würfel grün, je neu
+    gewürfeltem Würfel ein Kästchen mit „?“, Drehen blau als ⚅⚅→⚀. Klopfen als Wort."""
+    if option.aktion == "klopfen":
+        return "Klopfen"
+    sechsen, liegen, neu = option_teile(option, wurf)
+    teile = []
+    if sechsen:
+        teile.append(f":blue[{AUGEN[6] * sechsen}→{AUGEN[1] * (sechsen - 1)}]")
+    if liegen:
+        teile.append(f":green[{''.join(AUGEN[w] for w in liegen)}]")
+    if neu:
+        teile.append(NEU_MD * neu)
+    return " ".join(teile)
+
+
+def option_html(option, wurf) -> str:
+    """Wie `option_md`, als HTML für Tabellen."""
+    if option.aktion == "klopfen":
+        return "Klopfen"
+    sechsen, liegen, neu = option_teile(option, wurf)
+    # Leerzeichen zwischen den Gruppen, damit lange Optionen in der Tabelle umbrechen können
+    teile = [f'<span class="dreh">{augen((6,) * sechsen)}→{augen((1,) * (sechsen - 1))}</span>' if sechsen else "",
+             augen(liegen, liegt=True), verdeckt(neu)]
+    return " ".join(t for t in teile if t)
+
+
+LEGENDE = (f'<span class="legende"><span class="w liegt">{AUGEN[6]}</span> liegen lassen · {verdeckt(1)} neu würfeln · '
+           f'<span class="dreh"><span class="w">{AUGEN[6]}{AUGEN[6]}</span>→<span class="w">{AUGEN[1]}</span></span>'
+           ' drehen</span>')
+
+
+def empfehlung_html(wuerfel, option) -> str:
+    """Große Würfel in der Reihenfolge von `wuerfel`, darunter, was mit jedem passiert:
+    liegen lassen (grün), neu würfeln (blass, „?“-Kästchen) oder auf die 1 drehen (blau, →⚀)."""
+    if option.aktion == "klopfen":
+        teile = [f'<div class="ew liegen"><span>{AUGEN[w]}</span></div>' for w in wuerfel]
+        return f'<div class="empf">{"".join(teile)}</div>'
+    beschriftung = {"liegen": "liegen", "neu": f"{verdeckt(1)} neu", "drehen": f"→ {AUGEN[1]}"}
+    teile = [f'<div class="ew {a}"><span>{AUGEN[w]}</span><small>{beschriftung[a]}</small></div>'
+             for w, a in zip(wuerfel, wuerfel_aktionen(wuerfel, option))]
+    return f'<div class="empf">{"".join(teile)}</div>'
+
+
+def optionstabelle(emp, wurf) -> None:
+    """Pro Option die Chance, nicht zu verlieren, und die kumulativen Kategorie-Chancen.
+    Als HTML-Tabelle mit Piktogrammen statt `st.dataframe`, weil dessen Schrift am Handy zu klein ist."""
+    kopf = ["Option", "Nicht<br>verlieren", "≥ Max", "≥ Pasch", "≥ Straße"]
+    zeilen = [
         {
-            "Würfel": [f"{AUGEN[w]} {w}" for w in wuerfel],
-            "Empfehlung": [AKTION_BADGE[a] for a in wuerfel_aktionen(wuerfel, option)],
-        },
-        hide_index=True,
-        alt="Empfohlene Aktion pro Würfel",
-    )
-
-
-def optionstabelle(emp) -> None:
-    """Pro Option die Chance, nicht zu verlieren, und die kumulativen Kategorie-Chancen."""
-    st.dataframe(
-        [
-            {
-                "Option": ("★ " if b is emp.beste else "") + b.option.text,
-                "Nicht verlieren": b.nutzen * 100,
-                "≥ Max": b.mindestens(MAX) * 100,
-                "≥ Pasch": b.mindestens(PASCH) * 100,
-                "≥ Straße": b.mindestens(STRASSE) * 100,
-            }
-            for b in emp.optionen
-        ],
-        hide_index=True,
-        width="stretch",
-        column_config={
-            "Option": st.column_config.TextColumn(pinned=True),
-            **{
-                spalte: st.column_config.NumberColumn(format="%.0f %%")
-                for spalte in ("Nicht verlieren", "≥ Max", "≥ Pasch", "≥ Straße")
-            },
-        },
-    )
+            "Option": option_html(b.option, wurf),
+            "Nicht<br>verlieren": f"<b>{prozent(b.nutzen)}</b>",
+            "≥ Max": prozent(b.mindestens(MAX)),
+            "≥ Pasch": prozent(b.mindestens(PASCH)),
+            "≥ Straße": prozent(b.mindestens(STRASSE)),
+            "_klasse": "bester" if b is emp.beste else "",
+        }
+        for b in emp.optionen
+    ]
+    st.markdown(f'<div class="tabelle-scroll">{tabelle_html(kopf, zeilen, klasse="maxen optionen")}</div>',
+                unsafe_allow_html=True)
     st.caption("„≥“ bedeutet: diese Kategorie oder besser, bei optimalem Weiterspiel. "
                "Die Empfehlung maximiert die Chance, nicht zu verlieren – nicht die Chance auf eine bestimmte Kategorie.")
 
 
-def optionsknoepfe(optionen, on_click, *args, emp=None) -> None:
-    """Ein Knopf pro Option, Aufruf: on_click(option, *args).
-    Mit `emp` (Tipp): sortiert nach Empfehlung, mit Chance, die beste hervorgehoben."""
-    nutzen = {}
-    if emp is not None:
-        optionen = [b.option for b in emp.optionen]
-        nutzen = {b.option: b.nutzen for b in emp.optionen}
-    for o in optionen:
-        st.button(
-            f"{o.text} · {prozent(nutzen[o])}" if nutzen else o.text,
-            key=f"opt_{o.aktion}_{o.neu_fest}",
-            type="primary" if emp is not None and o == emp.beste.option else "secondary",
-            width="stretch",
-            on_click=on_click,
-            args=(o, *args),
-        )
+def optionsknoepfe(emp, wurf, on_click, *args) -> None:
+    """Ein Knopf pro Option als Piktogramm mit Chance, sortiert nach Empfehlung, die beste
+    hervorgehoben. Aufruf: on_click(option, *args)."""
+    with st.container(key="optionen"):
+        for b in emp.optionen:
+            o = b.option
+            st.button(
+                f"{option_md(o, wurf)} · {prozent(b.nutzen)}",
+                key=f"opt_{o.aktion}_{o.neu_fest}",
+                type="primary" if b is emp.beste else "secondary",
+                icon=":material/front_hand:" if o.aktion == "klopfen" else None,
+                width="stretch",
+                on_click=on_click,
+                args=(o, *args),
+            )

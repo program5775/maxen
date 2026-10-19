@@ -130,6 +130,22 @@ def test_raeume_verfallen():
     assert rs.raum("alt") is None and rs.raum("neu") is not None
 
 
+
+def test_liste_der_aktiven_raeume():
+    """Zuletzt geänderte zuerst; verfallene und leere Räume fehlen."""
+    rs, uhr = raeume()
+    alt, _ = rs.betreten("Alt", "Anna")
+    uhr.t += 10
+    neu, _ = rs.betreten("Neu", "Ben")
+    assert rs.liste() == [neu, alt]
+    uhr.t += 10
+    alt.einstellen("Anna", bots=1)                 # Änderung: wieder oben
+    assert rs.liste() == [alt, neu]
+    rs.verlassen("Neu", "Ben")
+    uhr.t += ABLAUF + 1
+    assert rs.liste() == []
+
+
 # --- Spiel ---------------------------------------------------------------------
 def test_doppeltipp_wirkt_nur_einmal():
     _, r, _ = raum_mit(["Anna"], bots=1)
@@ -289,7 +305,7 @@ def test_beenden_zurueck_in_den_warteraum():
 
 def test_mehrere_runden_mit_wechselnden_spielern():
     """Längerer Ablauf: Runden, Zuschauer, Verlassen, Rückkehr. Die Bricken stimmen immer."""
-    rs, r, uhr = raum_mit(["Anna", "Ben"], bots=2, stufe="Stammspieler", seed=3)
+    rs, r, uhr = raum_mit(["Anna", "Ben"], bots=2, stufe="Kneipengänger", seed=3)
     rng = random.Random(3)
     for runde in range(4):
         s = r.sitzung

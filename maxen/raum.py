@@ -81,7 +81,7 @@ class Raum:
         self.menschen: list[str] = []
         self.ersteller = ""
         self.bots = 0
-        self.stufe = "Stammspieler"
+        self.stufe = "Kneipengänger"
         self.tipps = False
         self.sitzung: Sitzung | None = None
         self.pause: Pause | None = None
@@ -380,6 +380,12 @@ class Raeume:
     def raum(self, raum: str) -> Raum | None:
         with self._lock:
             return self._raeume.get(raum_id(raum))
+
+    def liste(self) -> list[Raum]:
+        """Alle aktiven Räume, zuletzt geänderte zuerst (für die Auswahl beim Einstieg)."""
+        with self._lock:
+            self._aufraeumen()
+            return sorted(self._raeume.values(), key=lambda r: r.aktiv, reverse=True)
 
     def verlassen(self, raum: str, name: str) -> None:
         with self._lock:
