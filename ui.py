@@ -74,6 +74,9 @@ table.maxen td:nth-child(3) {{ white-space: nowrap; }}
 .empf .neu > span {{ opacity: .4; }}
 .empf .drehen, .dreh {{ color: {BLAU}; }}
 .legende {{ white-space: nowrap; }}
+/* Status unter dem Schalter „Bildschirm anlassen“ (vom Skript gefüllt) */
+.wach-status {{ font-size: .85rem; opacity: .7; margin-top: -.6rem; }}
+.wach-status:empty {{ display: none; }}
 
 /* Optionen als Piktogramme: groß genug, dass man sie am Handy lesen kann */
 .st-key-optionen button p {{ font-size: 1.35rem; }}
@@ -108,24 +111,44 @@ table.maxen.optionen td .w, table.maxen.optionen td .q {{ font-size: 1.3em; }}
 """
 
 
-WACH_JS = """<script>
+WACH_JS = """<div class="wach-status"></div><script>
 // Bildschirm anlassen (Screen Wake Lock API). Der Browser gibt die Sperre frei, sobald die Seite
 // nicht sichtbar ist (Tab gewechselt, Handy gesperrt); beim Zurückkehren wird sie neu angefordert.
-// Läuft bei jeder Änderung des Schalters erneut, der Listener wird nur einmal registriert.
+// Manche Browser erlauben sie erst nach einer Berührung, und im Energiesparmodus lehnen sie ab:
+// Solange keine Sperre besteht, wird es bei jedem Tippen erneut versucht. Der Status steht unter dem
+// Schalter, damit man am Handy sieht, was passiert. Läuft bei jeder Änderung des Schalters erneut,
+// die Listener werden nur einmal registriert.
 (() => {
   const w = window;
   w.maxenWach = __AN__;
-  if (!("wakeLock" in navigator)) return;
+  const status = (text) => {
+    w.maxenWachStatus = text;
+    document.querySelectorAll(".wach-status").forEach((e) => { e.textContent = w.maxenWach ? text : ""; });
+  };
+  if (!("wakeLock" in navigator)) { status("Kann dieser Browser leider nicht."); return; }
   w.maxenWachAnfordern ??= async () => {
-    if (!w.maxenWach || document.visibilityState !== "visible" || (w.maxenSperre && !w.maxenSperre.released)) return;
-    try { w.maxenSperre = await navigator.wakeLock.request("screen"); } catch (e) { /* z. B. Energiesparmodus */ }
+    if (!w.maxenWach || w.maxenWachLaeuft || document.visibilityState !== "visible") return;
+    if (w.maxenSperre && !w.maxenSperre.released) return;
+    w.maxenWachLaeuft = true;
+    try {
+      const sperre = await navigator.wakeLock.request("screen");
+      w.maxenSperre = sperre;
+      status("Aktiv.");
+      sperre.addEventListener("release", () => status("Freigegeben, wird beim nächsten Tippen erneuert."));
+    } catch (e) {
+      status(`Abgelehnt (${e.name}${e.message ? ": " + e.message : ""}). Wird beim nächsten Tippen erneut versucht.`);
+    } finally {
+      w.maxenWachLaeuft = false;
+    }
   };
   if (!w.maxenWachListener) {
     w.maxenWachListener = true;
     document.addEventListener("visibilitychange", () => w.maxenWachAnfordern());
+    document.addEventListener("pointerup", () => w.maxenWachAnfordern(), true);
   }
+  status(w.maxenWachStatus || "Wird angefordert …");
   if (w.maxenWach) w.maxenWachAnfordern();
-  else if (w.maxenSperre) { w.maxenSperre.release(); w.maxenSperre = null; }
+  else if (w.maxenSperre) { w.maxenSperre.release(); w.maxenSperre = null; w.maxenWachStatus = ""; }
 })();
 </script>"""
 
