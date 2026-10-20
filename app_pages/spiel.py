@@ -11,7 +11,6 @@ man nach einem Neuladen ohne Eingabe zurückkommt.
 """
 import random
 import time
-from functools import partial
 from html import escape
 
 import streamlit as st
@@ -70,13 +69,11 @@ def verlassen() -> None:
     st.query_params.clear()
 
 
-def dialog_zu(bestaetigen=None) -> None:
-    """Pop-up weggeklickt (X oder daneben): gilt als „Nächster Durchgang“. Nur, solange es noch offen
-    sein sollte; schließt es sich nach Ablauf der Zeit selbst, wird nichts bestätigt."""
-    offen = time.monotonic() < ss.spiel_dialog_bis
+def dialog_zu() -> None:
+    """Pop-up weggeklickt (X oder daneben): nur schließen. Weiter geht es erst mit „Nächster Durchgang“
+    (oder nach dem Zeitlimit), damit man vorher die Würfe der anderen in der Tabelle sehen kann
+    (vom Nutzer gewünscht 2026-10-20; vorher galt Wegklicken als Bestätigung)."""
     ss.spiel_dialog_zu = True
-    if offen and bestaetigen is not None:
-        bestaetigen()
 
 
 def einstellen(feld: str) -> None:
@@ -330,10 +327,7 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
                     ss.spiel_dialog_key, ss.spiel_dialog_zu = id(fertig), False
                     ss.spiel_dialog_bis = time.monotonic() + DIALOG_SEKUNDEN
                 if not ss.spiel_dialog_zu and time.monotonic() < ss.spiel_dialog_bis:
-                    weiter = None
-                    if ich in p.warten_auf and not p.runde:
-                        weiter = partial(raum.bestaetigen, ich_name, marke)
-                    st.dialog("Ergebnis", on_dismiss=partial(dialog_zu, weiter))(ergebnis_inhalt)()
+                    st.dialog("Ergebnis", on_dismiss=dialog_zu)(ergebnis_inhalt)()
 
             if p.runde:
                 if r.verlassen:
