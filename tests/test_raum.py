@@ -205,6 +205,22 @@ def test_urlaub_muss_nicht_bestaetigen():
     assert r.pause.warten_auf == menschen & spielten and r.pause.warten_auf
 
 
+def test_vorspulen_wenn_nur_noch_bots_spielen():
+    """Hat Anna Urlaub oder ist nicht im Finale, spulen die Bots bis zum Ende der Hälfte bzw. Runde vor."""
+    _, r, _ = raum_mit(["Anna"], bots=3)
+    s = r.sitzung
+    assert not r.vorspulen("Anna", r.marke("Anna"))            # keine Pause, Anna spielt mit
+    spiele_bis(r, lambda: r.pause is not None and not r.pause.runde and r.nur_bots, schritte=50000)
+    haelfte, durchgaenge = s.haelfte, len(s.ausgewertet)
+    assert r.vorspulen("Anna", r.marke("Anna"))
+    assert len(s.ausgewertet) > durchgaenge and r.pause is not None
+    assert s.runde.beendet or s.haelfte is not haelfte            # Hälfte oder Runde vorbei
+    assert r.pause.runde == s.runde.beendet and r.pause.warten_auf == {r.index("Anna")}
+    assert r.ausgewertet is s.ausgewertet[-1]                      # die Pause zeigt den letzten Durchgang
+    assert not r.nur_bots or s.runde.beendet
+    assert not r.vorspulen("Anna", r.marke("Anna"))            # nichts mehr vorzuspulen
+
+
 def test_allein_ohne_zeitlimit():
     _, r, uhr = raum_mit(["Anna"], bots=2)
     spiele_bis(r, lambda: r.pause is not None)

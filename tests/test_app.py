@@ -245,6 +245,21 @@ def test_tipps_im_spiel_fuer_die_haelfte():
     assert at.success[0].value == emp.begruendung() and "die Hälfte nicht zu verlieren" in emp.begruendung()
 
 
+def test_zum_ende_springen_wenn_nur_bots_spielen():
+    at = betrete("vorspulen", "Anna", seed=4)
+    starte_spiel(at, 3, stufe="Kneipengänger")
+    r = raum_von(at)
+    assert not [b for b in at.button if b.key == "spiel_vorspulen"]
+    spiele(at, lambda s: r.pause is not None and not r.pause.runde and r.nur_bots, schritte=20000)
+    at.run()
+    knopf = at.button(key="spiel_vorspulen")
+    assert knopf.label in ("Zum Ende der Hälfte springen", "Zum Rundenende springen")
+    s, n = r.sitzung, len(r.sitzung.ausgewertet)
+    knopf.click().run()
+    assert not at.exception and len(s.ausgewertet) > n and not r.nur_bots
+    assert not [b for b in at.button if b.key == "spiel_vorspulen"] and at.button(key="spiel_bestaetigen")
+
+
 def test_spiel_ohne_tipp_verraet_nichts():
     at = betrete("ohne-tipp", "Anna", seed=1)
     starte_spiel(at, 2)

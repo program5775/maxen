@@ -347,6 +347,11 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
                           on_click=raum.bestaetigen, args=(ich_name, marke), icon=":material/skip_next:")
             elif p.warten_auf:
                 st.caption(f":material/hourglass_empty: Warte auf {namen(sorted(p.warten_auf))}.")
+            # Spielen nur noch Bots (Urlaub, Finale ohne dich), muss man nicht jeden Durchgang bestätigen
+            if not p.runde and ich is not None and raum.nur_bots:
+                ziel = "Rundenende" if s.haelfte.art == "Finale" else "Ende der Hälfte"
+                st.button(f"Zum {ziel} springen", key="spiel_vorspulen", width="stretch",
+                          on_click=raum.vorspulen, args=(ich_name, marke), icon=":material/fast_forward:")
             aktualisieren()
             countdown = True
 

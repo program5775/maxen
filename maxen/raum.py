@@ -119,6 +119,15 @@ class Raum:
             return None
         return s.ausgewertet[-1]
 
+    @property
+    def nur_bots(self) -> bool:
+        """In der laufenden Hälfte spielt kein Mensch mehr mit (alle Menschen haben Urlaub oder sind
+        nicht im Finale). Dann darf vorgespult werden (`vorspulen`)."""
+        s = self.sitzung
+        if s is None or s.runde.beendet:
+            return False
+        return all(s.spieler[i].bot is not None for i in s.haelfte.aktive())
+
     @gesperrt
     def ist_da(self, name: str) -> bool:
         """`name` ist im Raum (nicht gegangen und nicht entfernt)."""
@@ -286,6 +295,29 @@ class Raum:
         self._gemacht(name)
         if not self.pause.warten_auf:
             self._pause_ende()
+        self._geaendert()
+        return True
+
+    @gesperrt
+    def vorspulen(self, name: str, marke: Marke) -> bool:
+        """In der Pause nach einem Durchgang, wenn nur noch Bots spielen: Die Bots spielen ohne Pausen
+        weiter, bis wieder ein Mensch mitspielt (nächste Hälfte) oder die Runde endet. Danach zeigt
+        die Pause wie gewohnt den letzten Durchgang (vom Nutzer gewünscht 2026-10-20)."""
+        i = self.index(name)
+        p = self.pause
+        if i is None or p is None or p.runde or marke != self.marke(name) or not self.nur_bots:
+            return False
+        s = self.sitzung
+        while self.nur_bots:
+            vorher = len(s.ausgewertet)
+            while len(s.ausgewertet) == vorher and any(s.spieler[j].bot for j in s.offen):
+                s.bots_ziehen()
+            if len(s.ausgewertet) == vorher:
+                break                            # sollte nicht vorkommen: ein Mensch müsste handeln
+        self.pause = None
+        self._gesehen = len(s.ausgewertet) - 1   # die letzte Auswertung zeigen
+        self._gemacht(name)
+        self._neue_pause()
         self._geaendert()
         return True
 
