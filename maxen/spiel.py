@@ -724,6 +724,6 @@ class Sitzung(Tisch):
                 im_durchgang = durchgang_engine(zug.grenze, d.gegner, zug.bestimmt_grenze).empfehlung(
                     zug.wurf, zug.wurf_nr, zug.gedreht)
                 lage = Lage(zug.wurf, zug.wurf_nr, zug.bestimmt_grenze, h.bricken[s], h.phase, h.mitte,
-                            {b.option: b.nutzen for b in im_durchgang.optionen})
+                            {b.option: b.nutzen for b in im_durchgang.optionen}, zug.grenze)
                 self.ausfuehren(bot.waehle(self.empfehlung(s), self.rng, lage), s)
                 return

@@ -54,12 +54,23 @@ def test_kneipengaenger_legt_6_und_1_heraus(gegner, startspieler):
     assert all(1 in o.neu_fest for o in waehlt(bot, (1, 3, 4), 2, gegner, startspieler))
 
 
-@pytest.mark.parametrize("wurf", [(2, 6, 6), (1, 4, 6), (1, 6, 6)])
-def test_kneipengaenger_schiesst_nicht_mit_6_6_oder_6_1(wurf):
-    for gegner in range(1, 6):
-        for bricken in (0, 2, 8):
-            optionen = waehlt(Kneipengaenger(), wurf, 1, gegner, startspieler=True, bricken=bricken, mal=50)
-            assert all(o.aktion != "klopfen" for o in optionen)
+@pytest.mark.parametrize("wurf", [(2, 6, 6), (1, 4, 6), (1, 6, 6), (3, 6, 6), (1, 3, 6)])
+@pytest.mark.parametrize("startspieler", [False, True])
+def test_kneipengaenger_klopft_nicht_mit_6_6_oder_6_1(wurf, startspieler):
+    """Solange man noch würfeln darf: kein Klopfen mit 6,6 oder 6 und 1, auch nach Wurf 2
+    (Ana: Startspielerin, 6,6,3 nach Wurf 2)."""
+    for nr in (1, 2):
+        for gegner in range(1, 6):
+            for bricken in (0, 2, 8):
+                optionen = waehlt(Kneipengaenger(), wurf, nr, gegner, startspieler, bricken=bricken, mal=30)
+                assert all(o.aktion != "klopfen" for o in optionen)
+
+
+def test_nach_dem_letzten_wurf_greift_die_6_6_regel_nicht():
+    """Nach Wurf 3 bleibt mit 6,6,3 nur Klopfen oder Drehen (Bonuswurf); das entscheidet die Engine."""
+    emp = Engine(3, 1).empfehlung((3, 6, 6), 3)
+    lage = Lage((3, 6, 6), 3)
+    assert any(faustregel(b.option, lage) for b in emp.optionen if b.option.aktion == "klopfen")
 
 
 @pytest.mark.parametrize("phase, mitte, bricken, wurf, nr, vorhaben", [

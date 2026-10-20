@@ -28,6 +28,7 @@ class Lage:
     phase: int = 1               # 1 = Verteilen, 2 = Abgeben
     mitte: int = 15              # Bricken in der Mitte
     durchgang: dict[Option, float] | None = None   # je Option die Chance, im Durchgang nicht Letzter zu sein
+    grenze: int = 3              # erlaubte Würfe (beim Startspieler 3)
 
 
 def plan(lage: Lage) -> str | None:
@@ -68,7 +69,10 @@ def faustregel(option: Option, lage: Lage) -> bool:
 
     * Mit Max, Pasch oder Straße je nach Phase und Bricken klopfen oder auf einen höheren Max
       gehen, 6,6,6 zu 1,1 drehen (siehe `plan`).
-    * Als Startspieler nach Wurf 1 mit 6,6 oder 6,1 nicht klopfen (kein Schuss).
+    * Mit 6,6 oder 6 und 1 (normaler Wurf) nicht klopfen, solange man noch normal würfeln darf
+      (vom Nutzer 2026-10-20: mit 6,1 ist ein Max zu 1/3 drin, man spielt bis zum letzten Wurf; Ana
+      klopfte als Startspielerin nach Wurf 2 mit 6,6,3, nachdem sie die 5 von 6,6,5 neu gewürfelt hatte).
+      Früher nur als Startspieler nach Wurf 1. Nach dem letzten Wurf entscheidet die Engine übers Drehen.
     * Wer weiterwürfelt, lässt alle 1en liegen und neben einer einzelnen 1 auch eine 6.
       Drehen ist davon ausgenommen.
     """
@@ -83,7 +87,7 @@ def faustregel(option: Option, lage: Lage) -> bool:
         return option.aktion == "drehen" and fest == (1, 1)
     if option.aktion == "klopfen":
         sechs_und = wurf.count(6) >= 2 or (6 in wurf and 1 in wurf)
-        return not (lage.startspieler and lage.wurf_nr == 1 and kategorie == NORMAL and sechs_und)
+        return not (lage.wurf_nr < lage.grenze and kategorie == NORMAL and sechs_und)
     if option.aktion == "drehen":
         return True
     if fest.count(1) < wurf.count(1):
