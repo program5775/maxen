@@ -72,6 +72,9 @@ def test_kneipengaenger_schiesst_nicht_mit_6_6_oder_6_1(wurf):
     # Phase 2, wenige eigene Bricken: Max muss für alle reichen; Straße und Pasch nach Wurf 1 klopfen
     (2, 0, 2, (1, 1, 2), 1, "klopfen"), (2, 0, 4, (1, 1, 3), 1, "max"), (2, 0, 4, (1, 1, 4), 2, "klopfen"),
     (2, 0, 6, (1, 1, 5), 2, "max"), (2, 0, 3, (2, 3, 4), 1, "klopfen"), (2, 0, 5, (4, 4, 4), 1, "klopfen"),
+    # 6,6,6 immer zu 1,1 drehen (auch nach Wurf 3: Bonuswurf), außer in Phase 2 mit höchstens 3 eigenen
+    (1, 15, 0, (6, 6, 6), 1, "drehen"), (1, 2, 5, (6, 6, 6), 3, "drehen"), (2, 0, 8, (6, 6, 6), 1, "drehen"),
+    (2, 0, 4, (6, 6, 6), 2, "drehen"), (2, 0, 3, (6, 6, 6), 2, "klopfen"), (2, 0, 1, (6, 6, 6), 3, "klopfen"),
 ])
 def test_kneipengaenger_plan_je_phase(phase, mitte, bricken, wurf, nr, vorhaben):
     for gegner in (1, 3, 5):
@@ -80,6 +83,22 @@ def test_kneipengaenger_plan_je_phase(phase, mitte, bricken, wurf, nr, vorhaben)
             assert {o.aktion for o in optionen} == {"klopfen"}
         else:
             assert {o.neu_fest for o in optionen} == {(1, 1)}
+
+
+def test_kneipengaenger_dreht_6_6_6_als_startspieler():
+    """Durchgang vom Nutzer: Peter, Startspieler in Phase 2 mit 7 Bricken, 6,6,6 nach Wurf 2. Die Engine
+    allein klopft (82 % gegen 76 % nicht verlieren), die Faustregel dreht."""
+    optionen = waehlt(Kneipengaenger(), (6, 6, 6), 2, 1, startspieler=True, bricken=7, phase=2, mitte=0, mal=20)
+    assert {(o.aktion, o.neu_fest) for o in optionen} == {("drehen", (1, 1))}
+    assert Engine(3, 1, startspieler=True).empfehlung((6, 6, 6), 2).beste.option.aktion == "klopfen"
+
+
+def test_6_6_6_ohne_drehen_entscheidet_die_engine():
+    """Wo nicht gedreht werden darf (Grenze 2 nach Wurf 2), greift die Faustregel nicht."""
+    emp = Engine(2, 1).empfehlung((6, 6, 6), 2)
+    lage = Lage((6, 6, 6), 2, phase=1)
+    assert not any(faustregel(b.option, lage) for b in emp.optionen)
+    assert Kneipengaenger().waehle(emp, random.Random(1), lage).aktion == "klopfen"
 
 
 def test_faustregeln_erlauben_immer_eine_option_oder_greifen_nicht():
