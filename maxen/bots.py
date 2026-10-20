@@ -27,6 +27,7 @@ class Lage:
     bricken: int = 0             # eigene Bricken in der laufenden Hälfte
     phase: int = 1               # 1 = Verteilen, 2 = Abgeben
     mitte: int = 15              # Bricken in der Mitte
+    durchgang: dict[Option, float] | None = None   # je Option die Chance, im Durchgang nicht Letzter zu sein
 
 
 def plan(lage: Lage) -> str | None:
@@ -114,14 +115,22 @@ class Kneipengaenger(Bot):
     """Spielt nach den Faustregeln (`faustregel`) und unter den Optionen, die sie erlauben, meist gut.
 
     In `regeltreue` der Fälle hält er sich an die Faustregeln; erlauben sie keine Option, gelten alle.
-    Optionen, deren Chance, nicht zu verlieren, mehr als `grenze` unter der besten verbliebenen liegt,
-    wählt er nie. Unter den übrigen wählt er zufällig, gewichtet per Softmax über die Log-Odds der Chance.
+    Optionen, deren Chance mehr als `grenze` unter der besten verbliebenen liegt, wählt er nie. Im Spiel
+    ist das die Chance, die Hälfte nicht zu verlieren; dort liegen die Optionen eng beieinander, daher
+    nur 1 Punkt (früher 3 Punkte bei „nicht verlieren“).
+
+    Unter den übrigen entscheidet er wie ein Mensch nach dem Durchgang (`lage.durchgang`): zufällig,
+    gewichtet per Softmax über die Log-Odds der Chance, nicht Letzter zu sein. Er wählt also meist, was
+    im Durchgang besser ist, klopft aber auch mal aus Schadensbegrenzung, wenn das für die Hälfte fast
+    genauso gut ist (vom Nutzer 2026-10-20: Jenni klopfte als Startspielerin mit 5,4,1 nach Wurf 2,
+    weil der Abstand für die Hälfte nur 0,1–0,4 Punkte war). Ohne `lage.durchgang` gewichtet er nach
+    der Chance der Empfehlung selbst.
     Log-Odds statt der Chance selbst, weil bei vielen Gegnern alle Chancen nahe 100 % liegen und klare
     Fehler dann nur kleine Abstände haben (6,6,1 nach Wurf 2 gegen 5 Gegner: Drehen 99,9 %,
     6,6 liegen lassen 92,6 %). Je höher die Temperatur, desto öfter weicht er von der besten Option ab."""
     stufe = "Kneipengänger"
 
-    def __init__(self, temperatur: float = 0.3, grenze: float = 0.03, regeltreue: float = 1.0):
+    def __init__(self, temperatur: float = 0.3, grenze: float = 0.01, regeltreue: float = 1.0):
         self.temperatur = temperatur
         self.grenze = grenze
         self.regeltreue = regeltreue
@@ -132,16 +141,18 @@ class Kneipengaenger(Bot):
             kandidaten = [b for b in kandidaten if faustregel(b.option, lage)] or kandidaten
         beste = kandidaten[0].nutzen
         kandidaten = [b for b in kandidaten if beste - b.nutzen <= self.grenze]
-        gewichte = [math.exp((logit(b.nutzen) - logit(beste)) / self.temperatur) for b in kandidaten]
+        chance = [lage.durchgang[b.option] if lage.durchgang else b.nutzen for b in kandidaten]
+        hoechste = max(logit(c) for c in chance)
+        gewichte = [math.exp((logit(c) - hoechste) / self.temperatur) for c in chance]
         return rng.choices(kandidaten, weights=gewichte)[0].option
 
 
 class Anfaenger(Kneipengaenger):
-    """Wie der Kneipengänger, aber mit größeren Fehlern (bis 15 Prozentpunkte unter der besten Option)
-    und nur in einem Drittel der Fälle nach den Faustregeln."""
+    """Wie der Kneipengänger, aber mit größeren Fehlern (bis 5 Punkte unter der besten Option für die
+    Hälfte, früher 15 Punkte bei „nicht verlieren“) und nur in einem Drittel der Fälle nach den Faustregeln."""
     stufe = "Anfänger"
 
-    def __init__(self, temperatur: float = 0.3, grenze: float = 0.15, regeltreue: float = 1 / 3):
+    def __init__(self, temperatur: float = 0.3, grenze: float = 0.05, regeltreue: float = 1 / 3):
         super().__init__(temperatur, grenze, regeltreue)
 
 

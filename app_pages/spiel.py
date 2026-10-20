@@ -19,7 +19,7 @@ from maxen.bots import STUFEN
 from maxen.raum import MAX_BOTS, WARTEN
 from maxen.regeln import bewerte, name, wurf_name
 from maxen.spiel import AM_WUERFELN, BEREIT, WUERFELN, aufzaehlung
-from ui import (AUGEN, augen, ergebnis_html, lade_engine, option_md, optionstabelle, prozent, raeume, schritte_html,
+from ui import (AUGEN, augen, ergebnis_html, option_md, optionstabelle, prozent, raeume, schritte_html,
                 tabelle_html, verdeckt)
 
 DIALOG_SEKUNDEN = 3     # so lange bleibt das Ergebnis-Pop-up offen
@@ -398,12 +398,12 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
                 if d.schuss:
                     st.markdown("**Schuss:**")
                 elif zug.bestimmt_grenze:
-                    st.markdown("**Du fängst an.")
+                    st.markdown("**Du fängst an.**")
                 else:
                     st.markdown(f"Du darfst **{zug.grenze}-mal** würfeln.")
                 if tipps:
-                    start = lade_engine(zug.grenze, d.gegner, zug.bestimmt_grenze).startwert()
-                    st.caption(f"Vor dem ersten Wurf: {prozent(start.nutzen)} Chance, nicht zu verlieren.")
+                    start = s.engine_fuer(ich)
+                    st.caption(f"Vor dem ersten Wurf: {prozent(start.startwert().nutzen)} Chance, {start.ziel}.")
                 st.button("Würfeln", key="spiel_wuerfeln", type="primary", width="stretch",
                           on_click=raum.ausfuehren, args=(ich_name, marke, WUERFELN), icon=":material/casino:")
 

@@ -28,7 +28,8 @@ from typing import Callable
 
 from .bots import STUFEN, bot_namen
 from .engine import Empfehlung, Engine, Option
-from .spiel import Sitzung, Spieler, standard_engine
+from .spiel import Sitzung, Spieler
+from .verlust import haelften_engine
 
 WARTEN, SPIEL = "warten", "spiel"
 PAUSE_DURCHGANG = 15                 # Sekunden, nur mit mindestens zwei Menschen im Raum
@@ -71,7 +72,7 @@ class Raum:
     gestartet, eine `Sitzung`. Wer während eines Spiels beitritt, schaut bis zum Ende der Runde zu."""
 
     def __init__(self, id: str, ersteller: str, rng: random.Random | None = None,
-                 engine: Callable[[int, int, bool], Engine] = standard_engine,
+                 engine: Callable[..., Engine] = haelften_engine,
                  uhr: Callable[[], float] = time.monotonic):
         self._lock = self.lock = threading.RLock()
         self.id = id
@@ -353,7 +354,7 @@ class Raeume:
     und verschwindet, wenn der letzte Mensch geht oder nach `ablauf` Sekunden ohne Änderung."""
 
     def __init__(self, rng_fabrik: Callable[[], random.Random] = random.Random,
-                 engine: Callable[[int, int, bool], Engine] = standard_engine,
+                 engine: Callable[..., Engine] = haelften_engine,
                  uhr: Callable[[], float] = time.monotonic, ablauf: float = ABLAUF):
         self.rng_fabrik = rng_fabrik
         self.engine = engine

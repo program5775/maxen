@@ -169,7 +169,7 @@ def lade_engine(wuerfe: int, gegner: int, startspieler: bool = False) -> Engine:
 @st.cache_resource
 def raeume() -> Raeume:
     """Alle Spielräume, gemeinsam für alle Sitzungen des Prozesses."""
-    return Raeume(engine=lade_engine)
+    return Raeume()
 
 
 def wuerfel_html(fest, neu=()) -> str:
@@ -285,13 +285,15 @@ def empfehlung_html(wuerfel, option) -> str:
 
 
 def optionstabelle(emp, wurf) -> None:
-    """Pro Option die Chance, nicht zu verlieren, und die kumulativen Kategorie-Chancen.
-    Als HTML-Tabelle mit Piktogrammen statt `st.dataframe`, weil dessen Schrift am Handy zu klein ist."""
-    kopf = ["Option", "Nicht<br>verlieren", "≥ Max", "≥ Pasch", "≥ Straße"]
+    """Pro Option die Chance, nicht zu verlieren (im Spiel: die Hälfte nicht zu verlieren), und die
+    kumulativen Kategorie-Chancen. Als HTML-Tabelle mit Piktogrammen statt `st.dataframe`, weil dessen
+    Schrift am Handy zu klein ist."""
+    chance = "Nicht<br>verlieren" if emp.ziel == "nicht zu verlieren" else "Hälfte nicht<br>verlieren"
+    kopf = ["Option", chance, "≥ Max", "≥ Pasch", "≥ Straße"]
     zeilen = [
         {
             "Option": option_html(b.option, wurf),
-            "Nicht<br>verlieren": f"<b>{prozent(b.nutzen)}</b>",
+            chance: f"<b>{prozent(b.nutzen)}</b>",
             "≥ Max": prozent(b.mindestens(MAX)),
             "≥ Pasch": prozent(b.mindestens(PASCH)),
             "≥ Straße": prozent(b.mindestens(STRASSE)),
@@ -302,7 +304,7 @@ def optionstabelle(emp, wurf) -> None:
     st.markdown(f'<div class="tabelle-scroll">{tabelle_html(kopf, zeilen, klasse="maxen optionen")}</div>',
                 unsafe_allow_html=True)
     st.caption("„≥“ bedeutet: diese Kategorie oder besser, bei optimalem Weiterspiel. "
-               "Die Empfehlung maximiert die Chance, nicht zu verlieren – nicht die Chance auf eine bestimmte Kategorie.")
+               f"Die Empfehlung maximiert die Chance, {emp.ziel} – nicht die Chance auf eine bestimmte Kategorie.")
 
 
 def optionsknoepfe(emp, wurf, on_click, *args) -> None:

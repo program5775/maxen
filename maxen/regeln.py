@@ -18,6 +18,9 @@ KATEGORIE_NAMEN = {
 Wurf = tuple[int, int, int]
 Schluessel = tuple[int, int]
 
+BRICKEN = 15                         # pro Hälfte
+VERTEILEN, ABGEBEN = 1, 2            # Phasen einer Hälfte
+
 
 def bewerte(wurf) -> Schluessel:
     """Liefert (Kategorie, Wert) – Tupelvergleich ergibt die Rangfolge."""
@@ -33,6 +36,16 @@ def bewerte(wurf) -> Schluessel:
     if a - b == 1 and b - c == 1:
         return (STRASSE, a)
     return (NORMAL, 100 * a + 10 * b + c)
+
+
+def bricken(schluessel: Schluessel) -> int | None:
+    """Bricken, die das beste Ergebnis eines Durchgangs kostet. None beim General (die Hälfte endet)."""
+    kat, wert = schluessel
+    if kat == GENERAL:
+        return None
+    if kat == MAX:
+        return wert
+    return {PASCH: 3, STRASSE: 2, NORMAL: 1}[kat]
 
 
 def name(schluessel: Schluessel) -> str:

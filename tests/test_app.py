@@ -232,6 +232,19 @@ def test_spiel_komplette_haelfte_gegen_bots():
     assert "raum" not in at.query_params
 
 
+def test_tipps_im_spiel_fuer_die_haelfte():
+    """Tipps im Spiel rechnen mit der Chance, die Hälfte nicht zu verlieren (Spielstand der Hälfte)."""
+    at = betrete("tipp-haelfte", "Anna", seed=1)
+    starte_spiel(at, 2)
+    r = raum_von(at)
+    at.toggle(key="cfg_raum_tipps").set_value(True).run()
+    spiele(at, lambda s: r.pause is None and s.am_zug is not None and s.am_zug.spieler == 0
+           and s.am_zug.wurf is not None)
+    at.run()
+    emp = r.sitzung.empfehlung(0)
+    assert at.success[0].value == emp.begruendung() and "die Hälfte nicht zu verlieren" in emp.begruendung()
+
+
 def test_spiel_ohne_tipp_verraet_nichts():
     at = betrete("ohne-tipp", "Anna", seed=1)
     starte_spiel(at, 2)

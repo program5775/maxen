@@ -4,10 +4,11 @@ import pytest
 
 from maxen.bots import Anfaenger, Kneipengaenger, Mathematiker
 from maxen.engine import Option
+from maxen.verlust import haelften_engine
 from maxen.regeln import bewerte
 from maxen.spiel import (
     ABGEBEN, AM_WUERFELN, BRICKEN, FERTIG, VERDECKT, WUERFELN,
-    Durchgang, Haelfte, Runde, Schritt, Sitzung, Spieler, Stechen, Tisch, Zug, bricken, standard_engine,
+    Durchgang, Haelfte, Runde, Schritt, Sitzung, Spieler, Stechen, Tisch, Zug, bricken,
 )
 
 
@@ -414,22 +415,25 @@ def test_schuss_nur_im_allerersten_durchgang():
 
 
 def test_bot_engine_parameter():
-    """Startspieler-Bot rechnet mit startspieler=True, die anderen mit der Grenze des Durchgangs."""
+    """Startspieler-Bot rechnet mit startspieler=True, die anderen mit der Grenze des Durchgangs;
+    alle mit dem Spielstand der Hälfte (Phase, Mitte, eigene und andere Bricken, Teilnehmer)."""
     aufrufe = []
 
-    def engine(wuerfe, gegner, startspieler):
-        aufrufe.append((wuerfe, gegner, startspieler))
-        return standard_engine(wuerfe, gegner, startspieler)
+    def engine(grenze, startspieler, phase, mitte, ich, andere, teilnehmer):
+        aufrufe.append((grenze, startspieler, phase, mitte, ich, andere, teilnehmer))
+        return haelften_engine(grenze, startspieler, phase, mitte, ich, andere, teilnehmer)
 
     s = Sitzung([Spieler(f"Bot {i}", Mathematiker()) for i in range(3)], random.Random(1), engine=engine)
     while s.durchgang.schuss:
         s.bot_schritt()
     assert aufrufe == []                                       # im Schuss gibt es nichts zu entscheiden
-    d = s.durchgang
+    h, d = s.haelfte, s.durchgang
+    stand = (h.phase, h.mitte)
     while s.durchgang is d:
         s.bot_schritt()
-    assert aufrufe[0] == (3, 2, True)
-    assert all(a == (d.grenze, 2, False) for a in aufrufe if not a[2])
+    assert aufrufe[0][:2] == (3, True) and aufrufe[0][2:4] == stand and aufrufe[0][-1] == 3
+    assert all(a[0] == d.grenze for a in aufrufe if not a[1])
+    assert all(len(a[5]) == 2 and a[4] + sum(a[5]) == BRICKEN - stand[1] for a in aufrufe)
 
 
 def test_bots_ziehen_bis_mensch_oder_ende_des_durchgangs():

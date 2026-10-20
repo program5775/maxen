@@ -191,6 +191,7 @@ class Engine:
         self.wuerfe = wuerfe
         self.gegner = gegner
         self.startspieler = startspieler
+        self.ziel = "nicht zu verlieren"
         if startspieler:
             self._nutzen_je_grenze = {k: Engine(k, gegner, iterationen).nutzen for k in (1, 2, 3)}
             self.nutzen = self._nutzen_je_grenze[3]
@@ -206,6 +207,19 @@ class Engine:
             self._setze_nutzen()
             if diff < 1e-12:
                 break
+
+    @classmethod
+    def mit_nutzen(cls, wuerfe: int, startspieler: bool, nutzen_je_grenze: dict[int, dict[Schluessel, float]],
+                   ziel: str) -> "Engine":
+        """Engine mit vorgegebenem Nutzen je Endergebnis statt „nicht verlieren“ (z. B. die Chance,
+        die Hälfte nicht zu verlieren, `verlust.py`). Als Startspieler je Grenze der anderen (1, 2, 3),
+        sonst nur für `wuerfe`. `ziel` ergänzt „Chance, …“ im Begründungstext."""
+        e = cls.__new__(cls)
+        e.wuerfe, e.gegner, e.startspieler, e.ziel = wuerfe, None, startspieler, ziel
+        e._nutzen_je_grenze = nutzen_je_grenze
+        e.nutzen = nutzen_je_grenze[3 if startspieler else wuerfe]
+        e._cache = {}
+        return e
 
     def _setze_nutzen(self) -> None:
         self.nutzen: dict[Schluessel, float] = {}
@@ -263,7 +277,7 @@ class Engine:
         max_nr = 4 if self.wuerfe == 3 else self.wuerfe
         if not 1 <= wurf_nr <= max_nr:
             raise ValueError(f"wurf_nr muss zwischen 1 und {max_nr} liegen")
-        return Empfehlung(self.bewerte_optionen(tuple(wurf), wurf_nr, gedreht))
+        return Empfehlung(self.bewerte_optionen(tuple(wurf), wurf_nr, gedreht), self.ziel)
 
     def startwert(self) -> Bewertung:
         """Chancen vor dem ersten Wurf."""
@@ -273,6 +287,7 @@ class Engine:
 @dataclass
 class Empfehlung:
     optionen: list[Bewertung]
+    ziel: str = "nicht zu verlieren"      # „Chance, …“: was `nutzen` misst
 
     @property
     def beste(self) -> Bewertung:
@@ -281,12 +296,12 @@ class Empfehlung:
     def begruendung(self) -> str:
         b = self.beste
         if b.option.aktion == "klopfen":
-            txt = f"{b.option.text}. Chance, nicht zu verlieren: ~{b.nutzen * 100:.0f}%."
+            txt = f"{b.option.text}. Chance, {self.ziel}: ~{b.nutzen * 100:.0f}%."
         else:
             ziel = next((k for k in (GENERAL, MAX, PASCH, STRASSE) if b.mindestens(k) >= 0.25), STRASSE)
             txt = (f"{b.option.text} – ~{b.mindestens(ziel) * 100:.0f}% Chance auf "
                    f"{KATEGORIE_NAMEN[ziel]} oder besser, "
-                   f"~{b.nutzen * 100:.0f}% Chance, nicht zu verlieren.")
+                   f"~{b.nutzen * 100:.0f}% Chance, {self.ziel}.")
             if b.bonus >= 0.05:
                 txt += f" Dabei ~{b.bonus * 100:.0f}% Chance auf einen Bonuswurf."
         if len(self.optionen) > 1:

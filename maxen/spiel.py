@@ -36,13 +36,12 @@ from typing import TYPE_CHECKING, Callable
 
 from .bots import Lage
 from .engine import Empfehlung, Engine, Option, darf_drehen, darf_wuerfeln, optionen
-from .regeln import GENERAL, MAX, NORMAL, PASCH, STRASSE, Schluessel, Wurf, bewerte, name, wurf_name
+from .verlust import haelften_engine
+from .regeln import (ABGEBEN, BRICKEN, GENERAL, MAX, NORMAL, PASCH, STRASSE, VERTEILEN, Schluessel, Wurf,
+                     bewerte, bricken, name, wurf_name)
 
 if TYPE_CHECKING:
     from .bots import Bot
-
-BRICKEN = 15                         # pro Hälfte
-VERTEILEN, ABGEBEN = 1, 2            # Phasen einer Hälfte
 
 # Stand eines Zugs
 BEREIT = "bereit"                    # noch nicht gewürfelt
@@ -57,23 +56,15 @@ WUERFELN = Option("legen", (), "Würfeln")   # der erste Wurf eines Zugs
 WIE_OFT = {1: "einmal", 2: "zweimal", 3: "dreimal"}
 
 
-def bricken(schluessel: Schluessel) -> int | None:
-    """Bricken, die das beste Ergebnis eines Durchgangs kostet. None beim General."""
-    kat, wert = schluessel
-    if kat == GENERAL:
-        return None
-    if kat == MAX:
-        return wert
-    return {PASCH: 3, STRASSE: 2, NORMAL: 1}[kat]
-
-
 def zeige(wurf) -> str:
     return ", ".join(map(str, sorted(wurf, reverse=True)))
 
 
 @lru_cache(maxsize=None)
-def standard_engine(wuerfe: int, gegner: int, startspieler: bool) -> Engine:
-    return Engine(wuerfe=wuerfe, gegner=gegner, startspieler=startspieler)
+def durchgang_engine(grenze: int, gegner: int, startspieler: bool) -> Engine:
+    """Engine für „im Durchgang nicht Letzter sein“. Bots wählen damit unter Optionen, die für die
+    Hälfte fast gleich gut sind, wie ein Mensch (`Kneipengaenger`)."""
+    return Engine(wuerfe=grenze, gegner=gegner, startspieler=startspieler)
 
 
 @dataclass
@@ -580,7 +571,9 @@ class Sitzung(Tisch):
     steht in `sitzordnung`."""
 
     def __init__(self, spieler: list[Spieler], rng: random.Random,
-                 engine: Callable[[int, int, bool], Engine] = standard_engine):
+                 engine: Callable[..., Engine] = haelften_engine):
+        """`engine(grenze, startspieler, phase, mitte, ich, andere, teilnehmer)` liefert die Engine für
+        Bots und Tipps: Sie maximiert die Chance, die Hälfte nicht zu verlieren (`verlust.py`)."""
         super().__init__(list(spieler), rng)
         self.engine = engine
         self.runden: list[Runde] = []
@@ -690,14 +683,22 @@ class Sitzung(Tisch):
             raise ValueError("Die Runde ist beendet")
         self.runde.ausfuehren(option, self._wer(spieler))
 
+    def engine_fuer(self, spieler: int | None = None) -> Engine:
+        """Engine für den Zug von `spieler` im laufenden Durchgang (Bots und Tipps), nach Spielstand
+        der Hälfte: eigene Bricken, die der anderen im Durchgang, Mitte und Phase."""
+        s = self._wer(spieler)
+        zug, h = self.durchgang.zug(s), self.haelfte
+        andere = tuple(sorted(h.bricken[j] for j in self.durchgang.reihenfolge if j != s))
+        return self.engine(zug.grenze, zug.bestimmt_grenze, h.phase, h.mitte, h.bricken[s], andere,
+                           len(h.teilnehmer))
+
     def empfehlung(self, spieler: int | None = None) -> Empfehlung:
         """Engine-Empfehlung für den Zug von `spieler` (für Bots und Tipps), erst nach dem ersten Wurf."""
         s = self._wer(spieler)
         zug = None if self.stechen else self.durchgang.zug(s)
         if zug is None or zug.wurf is None:
             raise ValueError("Keine Entscheidung nach einem Wurf offen")
-        e = self.engine(zug.grenze, self.durchgang.gegner, zug.bestimmt_grenze)
-        return e.empfehlung(zug.wurf, zug.wurf_nr, zug.gedreht)
+        return self.engine_fuer(s).empfehlung(zug.wurf, zug.wurf_nr, zug.gedreht)
 
     def bots_ziehen(self) -> None:
         """Bots ziehen, bis nur noch Menschen entscheiden oder stechen müssen oder der Durchgang endet."""
@@ -720,6 +721,9 @@ class Sitzung(Tisch):
             else:
                 zug = d.zug(s)
                 h = self.haelfte
-                lage = Lage(zug.wurf, zug.wurf_nr, zug.bestimmt_grenze, h.bricken[s], h.phase, h.mitte)
+                im_durchgang = durchgang_engine(zug.grenze, d.gegner, zug.bestimmt_grenze).empfehlung(
+                    zug.wurf, zug.wurf_nr, zug.gedreht)
+                lage = Lage(zug.wurf, zug.wurf_nr, zug.bestimmt_grenze, h.bricken[s], h.phase, h.mitte,
+                            {b.option: b.nutzen for b in im_durchgang.optionen})
                 self.ausfuehren(bot.waehle(self.empfehlung(s), self.rng, lage), s)
                 return
