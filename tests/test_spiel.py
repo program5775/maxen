@@ -4,7 +4,7 @@ import pytest
 
 from maxen.bots import Anfaenger, Kneipengaenger, Mathematiker
 from maxen.engine import Option
-from maxen.verlust import haelften_engine
+from maxen.verlust import zug_engines
 from maxen.regeln import bewerte
 from maxen.spiel import (
     ABGEBEN, AM_WUERFELN, BRICKEN, FERTIG, VERDECKT, WUERFELN,
@@ -416,12 +416,12 @@ def test_schuss_nur_im_allerersten_durchgang():
 
 def test_bot_engine_parameter():
     """Startspieler-Bot rechnet mit startspieler=True, die anderen mit der Grenze des Durchgangs;
-    alle mit dem Spielstand der Hälfte (Phase, Mitte, eigene und andere Bricken, Teilnehmer)."""
+    alle mit dem Spielstand der Hälfte und dem, was sie von den anderen sehen."""
     aufrufe = []
 
-    def engine(grenze, startspieler, phase, mitte, ich, andere, teilnehmer):
-        aufrufe.append((grenze, startspieler, phase, mitte, ich, andere, teilnehmer))
-        return haelften_engine(grenze, startspieler, phase, mitte, ich, andere, teilnehmer)
+    def engine(grenze, startspieler, phase, mitte, ich, gegner, teilnehmer):
+        aufrufe.append((grenze, startspieler, phase, mitte, ich, gegner, teilnehmer))
+        return zug_engines(grenze, startspieler, phase, mitte, ich, gegner, teilnehmer)
 
     s = Sitzung([Spieler(f"Bot {i}", Mathematiker()) for i in range(3)], random.Random(1), engine=engine)
     while s.durchgang.schuss:
@@ -431,9 +431,13 @@ def test_bot_engine_parameter():
     stand = (h.phase, h.mitte)
     while s.durchgang is d:
         s.bot_schritt()
-    assert aufrufe[0][:2] == (3, True) and aufrufe[0][2:4] == stand and aufrufe[0][-1] == 3
+    start = aufrufe[0]
+    assert start[:4] == (3, True) + stand and start[-1] == 3
+    assert all(sicht == ("frei",) for _, sicht in start[5])    # vor dem Startspieler hat niemand gewürfelt
     assert all(a[0] == d.grenze for a in aufrufe if not a[1])
-    assert all(len(a[5]) == 2 and a[4] + sum(a[5]) == BRICKEN - stand[1] for a in aufrufe)
+    assert all(len(a[5]) == 2 and a[4] + sum(b for b, _ in a[5]) == BRICKEN - stand[1] for a in aufrufe)
+    # wer nach dem Startspieler dran ist, sieht dessen Zug
+    assert any(sicht[0] != "frei" for a in aufrufe if not a[1] for _, sicht in a[5])
 
 
 def test_bots_ziehen_bis_mensch_oder_ende_des_durchgangs():

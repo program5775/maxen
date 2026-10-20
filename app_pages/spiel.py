@@ -402,8 +402,9 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
                 else:
                     st.markdown(f"Du darfst **{zug.grenze}-mal** würfeln.")
                 if tipps:
-                    start = s.engine_fuer(ich)
-                    st.caption(f"Vor dem ersten Wurf: {prozent(start.startwert().nutzen)} Chance, {start.ziel}.")
+                    haelfte, durchgang = s.engines(ich)
+                    st.caption(f"Vor dem ersten Wurf: {prozent(haelfte.startwert().nutzen)} Chance, {haelfte.ziel}, "
+                               f"{prozent(durchgang.startwert().nutzen)} Chance, im Durchgang nicht Letzter zu sein.")
                 st.button("Würfeln", key="spiel_wuerfeln", type="primary", width="stretch",
                           on_click=raum.ausfuehren, args=(ich_name, marke, WUERFELN), icon=":material/casino:")
 
@@ -413,7 +414,11 @@ with raum.lock:     # nichts von halb geänderten Zuständen zeichnen
                 nutzen = {b.option: b.nutzen for b in emp.optionen} if emp is not None else {}
 
                 def mit_chance(text: str, o) -> str:
-                    return f"{text} · {prozent(nutzen[o])}" if o in nutzen else text
+                    """Tipp im Knopf: beide Chancen ausdrücklich benannt (eine Zahl allein wurde als Chance im
+                    Durchgang gelesen, war aber die für die Hälfte)."""
+                    if o not in nutzen:
+                        return text
+                    return f"{text} · Hälfte {prozent(nutzen[o])} · Durchgang {prozent(emp.durchgang[o])}"
 
                 klopfen = next(o for o in opts if o.aktion == "klopfen")
                 if zug.stand == AM_WUERFELN:

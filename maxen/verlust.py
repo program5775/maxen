@@ -19,23 +19,26 @@ Modell
 * Phase 1 endet immer (die Mitte nimmt ab), Phase 2 kann hin und her gehen: Dort lösen wir ein
   lineares Gleichungssystem.
 
-Für den eigenen Zug rechnet `nutzen` genauer: Die Gegner würfeln mit der Verteilung der
-aktuellen Wurfgrenze, und für jedes eigene Ergebnis wird exakt bestimmt, wie wahrscheinlich man
-Bester, Schlechtester oder keins von beiden ist und wie viele Bricken das beste Ergebnis kostet.
+Für den eigenen Zug rechnet `nutzen` genauer, mit dem, was am Tisch zu sehen ist (`zug_engines`):
+* Wer schon offen fertig ist, hat ein bekanntes Ergebnis.
+* Bei einem verdeckten letzten Wurf sieht man, was liegt und wie viele Würfel geworfen wurden; das
+  Ergebnis folgt aus der Engine („nicht verlieren“) für diesen Zustand, inkl. Drehen zum Bonuswurf.
+* Wer noch nicht dran war, würfelt wie ein typischer Spieler mit der aktuellen Wurfgrenze.
+Für jedes eigene Ergebnis wird exakt bestimmt, mit welcher Wahrscheinlichkeit welcher Spieler das
+beste Ergebnis hat (gibt ab), welcher das schlechteste (bekommt) und was das beste Ergebnis kostet
+(`rollen`). Daraus folgen zwei Chancen: die Hälfte nicht zu verlieren und im Durchgang nicht Letzter
+zu sein (für die Anzeige und für die Bots, die unter fast gleich guten Optionen nach dem Durchgang wählen).
 """
 from __future__ import annotations
 
 from collections import defaultdict
 from functools import lru_cache
-from math import factorial
 
 import numpy as np
 
 from .engine import Engine, Verteilung
 from .regeln import ABGEBEN, ALLE_WUERFE, BRICKEN, VERTEILEN, Schluessel, bewerte
 from .regeln import bricken as kosten
-
-ICH, ANDERE = "ich", "andere"
 
 Stand = tuple[int, ...]           # Bricken der beteiligten Spieler, absteigend sortiert
 
@@ -62,50 +65,87 @@ def kosten_des_besten(verteilung: Verteilung, anzahl: int) -> dict[int | None, f
     return dict(d)
 
 
-def ereignisse(verteilung: Verteilung, k: int) -> dict[Schluessel, dict[tuple, float]]:
-    """Für jedes eigene Ergebnis gegen `k` Gegner mit `verteilung`: Wahrscheinlichkeit von
-    (Kosten des besten Ergebnisses, wer gibt ab, wer bekommt). Wer gibt/bekommt ist ICH oder
-    ANDERE; beim General ist „bekommt“ der Verlierer der Hälfte, „gibt“ ist dann None.
-    In Phase 1 zählt nur, wer bekommt."""
-    ergebnis = {}
-    m = k + 1
-    for r in ALLE_SCHLUESSEL:
-        p_a = sum(p for s, p in verteilung.items() if s > r)
-        p_e = verteilung.get(r, 0.0)
-        p_b = 1.0 - p_a - p_e
-        # Kosten des besten Gegners, wenn n_a Gegner besser sind (bedingt auf „besser als r“)
-        ueber = {s: p / p_a for s, p in verteilung.items() if s > r} if p_a > 0 else {}
-        d: dict[tuple, float] = defaultdict(float)
-        for n_a in range(k + 1):
-            for n_e in range(k - n_a + 1):
-                n_b = k - n_a - n_e
-                w = (factorial(k) / (factorial(n_a) * factorial(n_e) * factorial(n_b))
-                     * p_a ** n_a * p_e ** n_e * p_b ** n_b)
-                if w == 0:
-                    continue
-                # Wer bekommt: ich nur, wenn niemand schlechter ist, dann fair gestochen unter den Gleichen
-                ich_unten = 1 / (n_e + 1) if n_b == 0 else 0.0
-                if n_a > 0:
-                    for a, q in kosten_des_besten(ueber, n_a).items():
-                        geber = None if a is None else ANDERE
-                        d[(a, geber, ICH)] += w * q * ich_unten
-                        d[(a, geber, ANDERE)] += w * q * (1 - ich_unten)
-                    continue
-                a = kosten(r)
-                if a is None:                               # mein General
-                    d[(None, None, ICH)] += w * ich_unten
-                    d[(None, None, ANDERE)] += w * (1 - ich_unten)
-                    continue
-                ich_oben = 1 / (n_e + 1)
-                if n_b == 0:                                # alle gleich: ein gemeinsames Stechen
-                    d[(a, ICH, ANDERE)] += w / m
-                    d[(a, ANDERE, ICH)] += w / m
-                    d[(a, ANDERE, ANDERE)] += w * (m - 2) / m
-                else:
-                    d[(a, ICH, ANDERE)] += w * ich_oben
-                    d[(a, ANDERE, ANDERE)] += w * (1 - ich_oben)
-        ergebnis[r] = {e: p for e, p in d.items() if p > 0}
-    return ergebnis
+# --- Wer gibt ab, wer bekommt: einzelne Gegner mit eigener Verteilung ------------------
+K = len(ALLE_SCHLUESSEL)
+_INDEX = {s: i for i, s in enumerate(ALLE_SCHLUESSEL)}
+KLASSEN: list[int | None] = sorted({kosten(s) for s in ALLE_SCHLUESSEL} - {None}) + [None]
+_KLASSE = np.zeros((K, len(KLASSEN)))              # Ergebnis -> Kostenklasse (None = General)
+for _i, _s in enumerate(ALLE_SCHLUESSEL):
+    _KLASSE[_i, KLASSEN.index(kosten(_s))] = 1.0
+_UNTER = np.tril(np.ones((K, K)), -1)               # [h, l] = 1 für l < h
+_DIAG = np.arange(K)
+
+
+def als_vektor(verteilung: Verteilung) -> np.ndarray:
+    v = np.zeros(K)
+    for s, p in verteilung.items():
+        v[_INDEX[s]] += p
+    return v
+
+
+def _polynom(vektoren) -> dict[tuple[int, int], np.ndarray]:
+    """Produkt über die Spieler von (zwischen + oben·x + unten·y) für jedes Paar (h, l): Der Koeffizient
+    von x^a·y^b ist die Wahrscheinlichkeit, dass genau a von ihnen das Ergebnis h haben, b das
+    Ergebnis l und alle übrigen dazwischen liegen."""
+    c = {(0, 0): np.ones((K, K))}
+    for p in vektoren:
+        cdf = np.cumsum(p)
+        zwischen = (cdf - p)[:, None] - cdf[None, :]        # P(l < X < h), nur für l < h sinnvoll
+        oben, unten = p[:, None], p[None, :]
+        neu: dict[tuple[int, int], np.ndarray] = {}
+        for (a, b), w in c.items():
+            for schluessel, faktor in (((a, b), zwischen), ((a + 1, b), oben), ((a, b + 1), unten)):
+                neu[schluessel] = neu.get(schluessel, 0) + w * faktor
+        c = neu
+    return c
+
+
+def _summe(c, oben: int = 0, unten: int = 0) -> np.ndarray:
+    """Σ c[a, b] / ((a+1+oben)·(b+1+unten)): faires Stechen unter den Gleichstehenden oben und unten,
+    mit `oben`/`unten` weiteren Spielern, die dort mitstechen."""
+    return sum(w / ((a + 1 + oben) * (b + 1 + unten)) for (a, b), w in c.items())
+
+
+def rollen(gegner: list[np.ndarray]) -> np.ndarray:
+    """W[g, e, r, a]: Bei eigenem Ergebnis r (Index in ALLE_SCHLUESSEL) hat Spieler g das beste
+    Ergebnis (gibt ab), Spieler e das schlechteste (bekommt) und das beste Ergebnis die Kostenklasse
+    KLASSEN[a]. Spieler 0 bin ich, 1..k die Gegner mit ihren Ergebnisverteilungen. Gleichstand: faires
+    Stechen; sind alle gleich, entscheidet ein gemeinsames Stechen beides (g ≠ e).
+    Beim General ist e der Verlierer der Hälfte (g zählt dann nicht)."""
+    k, n = len(gegner), len(gegner) + 1
+    polynome: dict[frozenset, dict] = {}
+
+    def ohne(*spieler) -> dict:
+        schluessel = frozenset(spieler)
+        if schluessel not in polynome:
+            polynome[schluessel] = _polynom([gegner[i - 1] for i in range(1, n) if i not in schluessel])
+        return polynome[schluessel]
+
+    w = np.zeros((n, n, K, K))                          # [g, e, r, h]
+    for g in range(n):
+        for e in range(n):
+            if g == e:
+                continue
+            if g == 0:                                  # ich oben (h = r), e unten (l < r)
+                pe = gegner[e - 1]
+                w[0, e, _DIAG, _DIAG] += (_summe(ohne(e)) * _UNTER * pe[None, :]).sum(axis=1)
+            elif e == 0:                                # ich unten (l = r), g oben (h > r)
+                pg = gegner[g - 1]
+                w[g, 0] += (_summe(ohne(g)) * _UNTER * pg[:, None]).T
+            else:
+                pg, pe = gegner[g - 1], gegner[e - 1]
+                c = ohne(g, e)
+                paar = _UNTER * pg[:, None] * pe[None, :]                  # [h, l], g auf h, e auf l
+                t = _summe(c) * paar
+                w[g, e] += ((np.cumsum(t, axis=1) - t) * _UNTER).T        # ich dazwischen: l < r < h
+                w[g, e, _DIAG, _DIAG] += (_summe(c, oben=1) * paar).sum(axis=1)   # ich gleichauf oben
+                w[g, e] += (_summe(c, unten=1) * paar).T                  # ich gleichauf unten
+    alle_gleich = np.prod(gegner, axis=0) / (n * (n - 1)) if k else np.zeros(K)
+    for g in range(n):
+        for e in range(n):
+            if g != e:
+                w[g, e, _DIAG, _DIAG] += alle_gleich
+    return w @ _KLASSE
 
 
 def _sortiert(bricken) -> Stand:
@@ -197,66 +237,36 @@ class Haelftenmodell:
         # Mitte leer: weiter in Phase 2, außer einer hat alle 15 (dann verliert er, das deckt `verlust` ab)
         return self.verlust(ABGEBEN if mitte == 0 else VERTEILEN, mitte, tuple(neu))
 
-    def _ich_verliere(self, phase: int, mitte: int, ich: int, andere: list[int]) -> float:
-        """Meine Verlustchance in einem Spielstand nach dem Durchgang."""
-        if phase == VERTEILEN:
-            return self._nach_phase1(mitte, [ich] + andere)[0]
-        return self.verlust(ABGEBEN, 0, tuple([ich] + andere))[0]
-
     # --- Nutzen für den eigenen Zug ------------------------------------------------
-    def nutzen(self, phase: int, mitte: int, ich: int, andere: tuple[int, ...],
-               grenze: int) -> dict[Schluessel, float]:
-        """1 − Chance, die Hälfte zu verlieren, für jedes eigene Endergebnis des Durchgangs.
-        `andere`: Bricken der anderen Spieler im Durchgang; sie würfeln höchstens `grenze`-mal."""
-        andere = list(andere)
-        ereig_je_ergebnis = gegner_ereignisse(grenze, len(andere))
-        folgen: dict[tuple, float] = {}                     # (Kosten, gibt, bekommt) -> meine Verlustchance
-        for ereig in ereig_je_ergebnis.values():
-            for e in ereig:
-                if e not in folgen:
-                    folgen[e] = self._folge(e, phase, mitte, ich, andere)
-        return {r: 1.0 - sum(p * folgen[e] for e, p in ereig.items()) for r, ereig in ereig_je_ergebnis.items()}
+    def nutzen(self, phase: int, mitte: int, ich: int, andere: list[int],
+               w: np.ndarray) -> tuple[dict[Schluessel, float], dict[Schluessel, float]]:
+        """Für jedes eigene Endergebnis: (1 − Chance, die Hälfte zu verlieren, 1 − Chance, im Durchgang
+        Letzter zu sein). `andere`: Bricken der Gegner im Durchgang, `w` aus `rollen` in derselben Reihenfolge."""
+        n = len(andere) + 1
+        folge = np.zeros((n, n, len(KLASSEN)))
+        for g in range(n):
+            for e in range(n):
+                if g != e:
+                    for a, betrag in enumerate(KLASSEN):
+                        folge[g, e, a] = self._folge(phase, mitte, [ich] + list(andere), g, e, betrag)
+        verlust = np.einsum("gera,gea->r", w, folge)
+        letzter = w[:, 0].sum(axis=(0, 2))
+        return ({s: 1.0 - float(verlust[i]) for i, s in enumerate(ALLE_SCHLUESSEL)},
+                {s: 1.0 - float(letzter[i]) for i, s in enumerate(ALLE_SCHLUESSEL)})
 
-    def _folge(self, ereignis, phase, mitte, ich, andere) -> float:
-        """Meine Verlustchance nach einem Durchgang mit `ereignis`, gemittelt darüber, welcher
-        der anderen Spieler gibt bzw. bekommt (bei gleichen Gegnern ist jeder gleich wahrscheinlich)."""
-        betrag, geber, empfaenger = ereignis
-        k = len(andere)
-        if betrag is None:                                  # General
-            return 1.0 if empfaenger == ICH else 0.0
+    def _folge(self, phase: int, mitte: int, bricken: list[int], g: int, e: int, betrag: int | None) -> float:
+        """Meine Verlustchance (Spieler 0), wenn g das beste und e das schlechteste Ergebnis hat."""
+        if betrag is None:                                  # General: der Schlechteste verliert die Hälfte
+            return 1.0 if e == 0 else 0.0
+        neu = list(bricken)
         if phase == VERTEILEN:
             t = min(betrag, mitte)
-            if empfaenger == ICH:
-                return self._ich_verliere(phase, mitte - t, ich + t, andere)
-            werte = []
-            for e in range(k):
-                neu = list(andere)
-                neu[e] += t
-                werte.append(self._ich_verliere(phase, mitte - t, ich, neu))
-            return sum(werte) / k
-        werte = []
-        if geber == ICH:
-            for e in range(k):
-                t = min(betrag, ich)
-                neu = list(andere)
-                neu[e] += t
-                werte.append(self._ich_verliere(phase, 0, ich - t, neu))
-        elif empfaenger == ICH:
-            for g in range(k):
-                t = min(betrag, andere[g])
-                neu = list(andere)
-                neu[g] -= t
-                werte.append(self._ich_verliere(phase, 0, ich + t, neu))
-        else:
-            for g in range(k):
-                for e in range(k):
-                    if g != e:
-                        t = min(betrag, andere[g])
-                        neu = list(andere)
-                        neu[g] -= t
-                        neu[e] += t
-                        werte.append(self._ich_verliere(phase, 0, ich, neu))
-        return sum(werte) / len(werte)
+            neu[e] += t
+            return self._nach_phase1(mitte - t, neu)[0]
+        t = min(betrag, neu[g])
+        neu[g] -= t
+        neu[e] += t
+        return self.verlust(ABGEBEN, 0, tuple(neu))[0]
 
 
 def _aufteilungen(summe: int, teile: int, hoechstens: int | None = None) -> list[Stand]:
@@ -271,23 +281,46 @@ def _aufteilungen(summe: int, teile: int, hoechstens: int | None = None) -> list
 
 
 @lru_cache(maxsize=None)
-def gegner_ereignisse(grenze: int, k: int) -> dict[Schluessel, dict[tuple, float]]:
-    """`ereignisse` gegen `k` Gegner, die höchstens `grenze`-mal würfeln."""
-    return ereignisse(gegner_verteilung(grenze, k), k)
-
-
-@lru_cache(maxsize=None)
 def haelftenmodell(n: int) -> Haelftenmodell:
     return Haelftenmodell(n)
 
 
+@lru_cache(maxsize=None)
+def durchgang_engine(grenze: int, gegner: int, startspieler: bool) -> Engine:
+    """Engine für „im Durchgang nicht Letzter sein“; damit wird geschätzt, wie ein Gegner weiterspielt."""
+    return Engine(wuerfe=grenze, gegner=gegner, startspieler=startspieler)
+
+
+@lru_cache(maxsize=4096)
+def sicht_vektor(sicht: tuple, grenze: int, k: int) -> np.ndarray:
+    """Ergebnisverteilung eines Gegners nach dem, was man von ihm sieht (`k` Gegner je Spieler):
+    ("frei",): noch nicht dran, würfelt höchstens `grenze`-mal;
+    ("fest", schluessel): offen fertig;
+    ("verdeckt", grenze, startspieler, fest, wurf_nr, gedreht): letzter Wurf verdeckt, `fest` lag davor;
+    ("entscheidet", grenze, startspieler, wurf, gedreht): aufgedeckt nach Wurf 3, dreht vielleicht noch."""
+    art = sicht[0]
+    if art == "frei":
+        return als_vektor(gegner_verteilung(grenze, k))
+    if art == "fest":
+        return als_vektor({sicht[1]: 1.0})
+    e = durchgang_engine(sicht[1], k, sicht[2])
+    if art == "verdeckt":
+        return als_vektor(e.zustand(sicht[3], sicht[4], sicht[5])[1])
+    return als_vektor(e.bewerte_optionen(sicht[3], 3, sicht[4])[0].verteilung)
+
+
 @lru_cache(maxsize=512)
-def haelften_engine(grenze: int, startspieler: bool, phase: int, mitte: int, ich: int,
-                    andere: tuple[int, ...], teilnehmer: int) -> Engine:
-    """Engine, die die Chance maximiert, die Hälfte nicht zu verlieren. `andere` sortiert übergeben,
+def zug_engines(grenze: int, startspieler: bool, phase: int, mitte: int, ich: int,
+                gegner: tuple[tuple[int, tuple], ...], teilnehmer: int) -> tuple[Engine, Engine]:
+    """Engines für den eigenen Zug: (die Hälfte nicht verlieren, im Durchgang nicht Letzter sein).
+    `gegner`: je Gegner im Durchgang (Bricken, Sicht wie bei `sicht_vektor`); sortiert übergeben,
     damit der Cache greift. Als Startspieler hängt die Grenze der anderen vom eigenen Klopfen ab."""
     modell = haelftenmodell(teilnehmer)
-    grenzen = (1, 2, 3) if startspieler else (grenze,)
-    nutzen = {g: modell.nutzen(phase, mitte, ich, andere, g) for g in grenzen}
-    return Engine.mit_nutzen(3 if startspieler else grenze, startspieler, nutzen,
-                             ziel="die Hälfte nicht zu verlieren")
+    andere = [b for b, _ in gegner]
+    haelfte, durchgang = {}, {}
+    for g in ((1, 2, 3) if startspieler else (grenze,)):
+        w = rollen([sicht_vektor(sicht, g, len(gegner)) for _, sicht in gegner])
+        haelfte[g], durchgang[g] = modell.nutzen(phase, mitte, ich, andere, w)
+    wuerfe = 3 if startspieler else grenze
+    return (Engine.mit_nutzen(wuerfe, startspieler, haelfte, ziel="die Hälfte nicht zu verlieren"),
+            Engine.mit_nutzen(wuerfe, startspieler, durchgang, ziel="im Durchgang nicht Letzter zu sein"))

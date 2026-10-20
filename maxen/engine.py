@@ -288,6 +288,7 @@ class Engine:
 class Empfehlung:
     optionen: list[Bewertung]
     ziel: str = "nicht zu verlieren"      # „Chance, …“: was `nutzen` misst
+    durchgang: dict[Option, float] | None = None   # im Spiel: je Option die Chance, im Durchgang nicht Letzter zu sein
 
     @property
     def beste(self) -> Bewertung:
@@ -304,6 +305,8 @@ class Empfehlung:
                    f"~{b.nutzen * 100:.0f}% Chance, {self.ziel}.")
             if b.bonus >= 0.05:
                 txt += f" Dabei ~{b.bonus * 100:.0f}% Chance auf einen Bonuswurf."
+        if self.durchgang is not None:
+            txt += f" Im Durchgang ~{self.durchgang[b.option] * 100:.0f}% Chance, nicht Letzter zu sein."
         if len(self.optionen) > 1:
             z = self.optionen[1]
             txt += f" Nächstbeste Option: {z.option.text} ({z.nutzen * 100:.0f}%)."

@@ -261,10 +261,10 @@ def option_html(option, wurf) -> str:
     if option.aktion == "klopfen":
         return "Klopfen"
     sechsen, liegen, neu = option_teile(option, wurf)
-    # Leerzeichen zwischen den Gruppen, damit lange Optionen in der Tabelle umbrechen können
+    # Umbrechen nur zwischen den Gruppen (Drehen, liegen, neu), nie innerhalb einer Gruppe
     teile = [f'<span class="dreh">{augen((6,) * sechsen)}→{augen((1,) * (sechsen - 1))}</span>' if sechsen else "",
              augen(liegen, liegt=True), verdeckt(neu)]
-    return " ".join(t for t in teile if t)
+    return " ".join(f'<span class="schritt">{t}</span>' for t in teile if t)
 
 
 LEGENDE = (f'<span class="legende"><span class="w liegt">{AUGEN[6]}</span> liegen lassen · {verdeckt(1)} neu würfeln · '
@@ -285,15 +285,19 @@ def empfehlung_html(wuerfel, option) -> str:
 
 
 def optionstabelle(emp, wurf) -> None:
-    """Pro Option die Chance, nicht zu verlieren (im Spiel: die Hälfte nicht zu verlieren), und die
-    kumulativen Kategorie-Chancen. Als HTML-Tabelle mit Piktogrammen statt `st.dataframe`, weil dessen
-    Schrift am Handy zu klein ist."""
-    chance = "Nicht<br>verlieren" if emp.ziel == "nicht zu verlieren" else "Hälfte nicht<br>verlieren"
-    kopf = ["Option", chance, "≥ Max", "≥ Pasch", "≥ Straße"]
+    """Pro Option die Chance, nicht zu verlieren (im Spiel: die Hälfte nicht zu verlieren und im
+    Durchgang nicht Letzter zu sein), und die kumulativen Kategorie-Chancen. Als HTML-Tabelle mit
+    Piktogrammen statt `st.dataframe`, weil dessen Schrift am Handy zu klein ist."""
+    if emp.durchgang is None:
+        spalten = {"Nicht<br>verlieren": lambda b: b.nutzen}
+    else:
+        spalten = {"Hälfte": lambda b: b.nutzen, "Durch&shy;gang": lambda b: emp.durchgang[b.option]}
+    kopf = ["Option", *spalten, "≥ Max", "≥ Pasch", "≥ Straße"]
     zeilen = [
         {
             "Option": option_html(b.option, wurf),
-            chance: f"<b>{prozent(b.nutzen)}</b>",
+            **{name: f"<b>{prozent(wert(b))}</b>" if i == 0 else prozent(wert(b))
+               for i, (name, wert) in enumerate(spalten.items())},
             "≥ Max": prozent(b.mindestens(MAX)),
             "≥ Pasch": prozent(b.mindestens(PASCH)),
             "≥ Straße": prozent(b.mindestens(STRASSE)),
@@ -303,8 +307,10 @@ def optionstabelle(emp, wurf) -> None:
     ]
     st.markdown(f'<div class="tabelle-scroll">{tabelle_html(kopf, zeilen, klasse="maxen optionen")}</div>',
                 unsafe_allow_html=True)
-    st.caption("„≥“ bedeutet: diese Kategorie oder besser, bei optimalem Weiterspiel. "
-               f"Die Empfehlung maximiert die Chance, {emp.ziel} – nicht die Chance auf eine bestimmte Kategorie.")
+    erklaerung = ("„Hälfte“: Chance, die Hälfte nicht zu verlieren, danach richtet sich die Empfehlung. "
+                  "„Durchgang“: Chance, in diesem Durchgang nicht Letzter zu sein. " if emp.durchgang is not None else
+                  f"Die Empfehlung maximiert die Chance, {emp.ziel} – nicht die Chance auf eine bestimmte Kategorie. ")
+    st.caption(erklaerung + "„≥“ bedeutet: diese Kategorie oder besser, bei optimalem Weiterspiel.")
 
 
 def optionsknoepfe(emp, wurf, on_click, *args) -> None:

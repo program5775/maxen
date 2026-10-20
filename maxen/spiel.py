@@ -31,12 +31,11 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
-from functools import lru_cache
 from typing import TYPE_CHECKING, Callable
 
 from .bots import Lage
 from .engine import Empfehlung, Engine, Option, darf_drehen, darf_wuerfeln, optionen
-from .verlust import haelften_engine
+from .verlust import zug_engines
 from .regeln import (ABGEBEN, BRICKEN, GENERAL, MAX, NORMAL, PASCH, STRASSE, VERTEILEN, Schluessel, Wurf,
                      bewerte, bricken, name, wurf_name)
 
@@ -58,13 +57,6 @@ WIE_OFT = {1: "einmal", 2: "zweimal", 3: "dreimal"}
 
 def zeige(wurf) -> str:
     return ", ".join(map(str, sorted(wurf, reverse=True)))
-
-
-@lru_cache(maxsize=None)
-def durchgang_engine(grenze: int, gegner: int, startspieler: bool) -> Engine:
-    """Engine für „im Durchgang nicht Letzter sein“. Bots wählen damit unter Optionen, die für die
-    Hälfte fast gleich gut sind, wie ein Mensch (`Kneipengaenger`)."""
-    return Engine(wuerfe=grenze, gegner=gegner, startspieler=startspieler)
 
 
 @dataclass
@@ -571,9 +563,9 @@ class Sitzung(Tisch):
     steht in `sitzordnung`."""
 
     def __init__(self, spieler: list[Spieler], rng: random.Random,
-                 engine: Callable[..., Engine] = haelften_engine):
-        """`engine(grenze, startspieler, phase, mitte, ich, andere, teilnehmer)` liefert die Engine für
-        Bots und Tipps: Sie maximiert die Chance, die Hälfte nicht zu verlieren (`verlust.py`)."""
+                 engine: Callable[..., tuple[Engine, Engine]] = zug_engines):
+        """`engine(grenze, startspieler, phase, mitte, ich, gegner, teilnehmer)` liefert die Engines für
+        Bots und Tipps: (die Hälfte nicht verlieren, im Durchgang nicht Letzter sein), `verlust.py`."""
         super().__init__(list(spieler), rng)
         self.engine = engine
         self.runden: list[Runde] = []
@@ -683,22 +675,39 @@ class Sitzung(Tisch):
             raise ValueError("Die Runde ist beendet")
         self.runde.ausfuehren(option, self._wer(spieler))
 
-    def engine_fuer(self, spieler: int | None = None) -> Engine:
-        """Engine für den Zug von `spieler` im laufenden Durchgang (Bots und Tipps), nach Spielstand
-        der Hälfte: eigene Bricken, die der anderen im Durchgang, Mitte und Phase."""
+    @staticmethod
+    def sicht(z: Zug) -> tuple:
+        """Was alle am Tisch von einem anderen Zug sehen (für `verlust.sicht_vektor`): nichts, das
+        offene Ergebnis oder beim verdeckten letzten Wurf die liegenden Würfel."""
+        if z.wurf is None:
+            return ("frei",)
+        if z.aufgedeckt and z.stand == FERTIG:
+            return ("fest", bewerte(z.wurf))
+        if z.aufgedeckt:                      # nach Wurf 3 aufgedeckt, entscheidet noch übers Drehen
+            return ("entscheidet", z.grenze, z.bestimmt_grenze, z.wurf, z.gedreht)
+        return ("verdeckt", z.grenze, z.bestimmt_grenze, tuple(sorted(z.schritte[-1].fest)), z.wurf_nr, z.gedreht)
+
+    def engines(self, spieler: int | None = None) -> tuple[Engine, Engine]:
+        """Engines für den Zug von `spieler` (Bots und Tipps): (die Hälfte nicht verlieren, im Durchgang
+        nicht Letzter sein), nach Spielstand der Hälfte und dem, was von den anderen zu sehen ist."""
         s = self._wer(spieler)
-        zug, h = self.durchgang.zug(s), self.haelfte
-        andere = tuple(sorted(h.bricken[j] for j in self.durchgang.reihenfolge if j != s))
-        return self.engine(zug.grenze, zug.bestimmt_grenze, h.phase, h.mitte, h.bricken[s], andere,
+        d, h = self.durchgang, self.haelfte
+        gegner = tuple(sorted((h.bricken[z.spieler], self.sicht(z)) for z in d.zuege if z.spieler != s))
+        zug = d.zug(s)
+        return self.engine(zug.grenze, zug.bestimmt_grenze, h.phase, h.mitte, h.bricken[s], gegner,
                            len(h.teilnehmer))
 
     def empfehlung(self, spieler: int | None = None) -> Empfehlung:
-        """Engine-Empfehlung für den Zug von `spieler` (für Bots und Tipps), erst nach dem ersten Wurf."""
+        """Engine-Empfehlung für den Zug von `spieler` (für Bots und Tipps), erst nach dem ersten Wurf.
+        Bewertet nach der Hälfte; `durchgang` enthält je Option die Chance, nicht Letzter zu sein."""
         s = self._wer(spieler)
         zug = None if self.stechen else self.durchgang.zug(s)
         if zug is None or zug.wurf is None:
             raise ValueError("Keine Entscheidung nach einem Wurf offen")
-        return self.engine_fuer(s).empfehlung(zug.wurf, zug.wurf_nr, zug.gedreht)
+        haelfte, durchgang = self.engines(s)
+        emp = haelfte.empfehlung(zug.wurf, zug.wurf_nr, zug.gedreht)
+        emp.durchgang = {b.option: b.nutzen for b in durchgang.empfehlung(zug.wurf, zug.wurf_nr, zug.gedreht).optionen}
+        return emp
 
     def bots_ziehen(self) -> None:
         """Bots ziehen, bis nur noch Menschen entscheiden oder stechen müssen oder der Durchgang endet."""
@@ -721,9 +730,8 @@ class Sitzung(Tisch):
             else:
                 zug = d.zug(s)
                 h = self.haelfte
-                im_durchgang = durchgang_engine(zug.grenze, d.gegner, zug.bestimmt_grenze).empfehlung(
-                    zug.wurf, zug.wurf_nr, zug.gedreht)
+                emp = self.empfehlung(s)
                 lage = Lage(zug.wurf, zug.wurf_nr, zug.bestimmt_grenze, h.bricken[s], h.phase, h.mitte,
-                            {b.option: b.nutzen for b in im_durchgang.optionen}, zug.grenze)
-                self.ausfuehren(bot.waehle(self.empfehlung(s), self.rng, lage), s)
+                            emp.durchgang, zug.grenze)
+                self.ausfuehren(bot.waehle(emp, self.rng, lage), s)
                 return
