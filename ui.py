@@ -125,6 +125,8 @@ WACH_JS = """<div class="wach-status"></div><script>
     w.maxenWachStatus = text;
     document.querySelectorAll(".wach-status").forEach((e) => { e.textContent = w.maxenWach ? text : ""; });
   };
+  // Ohne HTTPS (z. B. lokal über http://192.168…) blenden Browser die API ganz aus; localhost zählt als sicher
+  if (!isSecureContext) { status("Geht nur über HTTPS, nicht über http://."); return; }
   if (!("wakeLock" in navigator)) { status("Kann dieser Browser leider nicht."); return; }
   w.maxenWachAnfordern ??= async () => {
     if (!w.maxenWach || w.maxenWachLaeuft || document.visibilityState !== "visible") return;
